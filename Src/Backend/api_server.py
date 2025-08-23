@@ -14,6 +14,9 @@ from clip_persona_studio import ClipPersonaStudio
 from enhanced_nlp_parser import EnhancedNLPParser
 from enhanced_video_comprehension import EnhancedVideoComprehension
 
+# 导入新的Persona API
+from api.persona_api import persona_bp
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,14 +36,18 @@ def get_all_ip_addresses():
 
 app = Flask(__name__)
 
+# 注册Persona API蓝图
+app.register_blueprint(persona_bp)
+
 # 配置 CORS
 CORS(app, resources={
     r"/*": {
         "origins": "*",
-        "methods": ["GET", "POST", "OPTIONS"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "Accept"],
         "supports_credentials": True
     }
+}
 })
 
 # 初始化ClipPersona Studio系统
@@ -133,7 +140,25 @@ def root():
             "health_check": "/health-check",
             "upload_video": "/upload-video",
             "process_video": "/process-video",
-            "check_file": "/check-file"
+            "check_file": "/check-file",
+            "persona": {
+                "create": "/api/persona/create",
+                "get": "/api/persona/get/<id>",
+                "update": "/api/persona/update/<id>",
+                "delete": "/api/persona/delete/<id>",
+                "list": "/api/persona/list",
+                "featured": "/api/persona/featured",
+                "popular": "/api/persona/popular",
+                "search": "/api/persona/search",
+                "analyze_video": "/api/persona/analyze-video",
+                "feedback": "/api/persona/feedback",
+                "generate_plan": "/api/persona/generate-plan",
+                "record_operation": "/api/persona/record-operation",
+                "recommendations": "/api/persona/recommendations",
+                "user_personas": "/api/persona/user/<author>",
+                "statistics": "/api/persona/statistics/<id>",
+                "categories": "/api/persona/categories"
+            }
         }
     })
 

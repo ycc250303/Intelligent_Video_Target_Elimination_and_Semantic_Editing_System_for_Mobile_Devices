@@ -1,264 +1,239 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-简化版ClipPersona Studio 功能测试脚本
-专注于人格生成和自然语言处理功能测试
+简化的Persona系统测试
+仅测试基础数据模型和数据库功能
 """
 
 import os
-import sys
 import json
-import logging
+import sys
+import sqlite3
 from datetime import datetime
 
-# 添加当前目录到Python路径
+# 添加Backend目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+from models.persona_model import PersonaModel, PersonaCategory, PersonaStatus
+from database.persona_db import PersonaDatabase
 
-def test_basic_imports():
-    """测试基本模块导入"""
-    print("=" * 60)
-    print("测试基本模块导入")
-    print("=" * 60)
-    
-    try:
-        from clip_persona_studio import ClipPersonaStudio
-        print("✓ ClipPersonaStudio 导入成功")
-    except Exception as e:
-        print(f"✗ ClipPersonaStudio 导入失败: {e}")
-        return False
-    
-    try:
-        from enhanced_nlp_parser import EnhancedNLPParser
-        print("✓ EnhancedNLPParser 导入成功")
-    except Exception as e:
-        print(f"✗ EnhancedNLPParser 导入失败: {e}")
-        return False
-    
-    try:
-        from enhanced_video_comprehension import EnhancedVideoComprehension
-        print("✓ EnhancedVideoComprehension 导入成功")
-    except Exception as e:
-        print(f"✗ EnhancedVideoComprehension 导入失败: {e}")
-        return False
-    
-    return True
 
-def test_nlp_parser():
-    """测试自然语言处理功能"""
-    print("\n" + "=" * 60)
-    print("测试自然语言处理功能")
-    print("=" * 60)
+def test_persona_model():
+    """测试Persona模型"""
+    print("🔹 测试Persona模型...")
     
-    try:
-        from enhanced_nlp_parser import EnhancedNLPParser
-        nlp_parser = EnhancedNLPParser()
-        print("✓ NLP解析器初始化成功")
-        
-        # 测试简单指令
-        test_instructions = [
-            "剪掉视频前10秒",
-            "加速2倍播放",
-            "添加淡入淡出转场效果",
-            "在视频中添加文字：欢迎观看",
-            "调整亮度到80%",
-            "添加背景音乐"
-        ]
-        
-        for instruction in test_instructions:
-            try:
-                print(f"\n测试指令: {instruction}")
-                
-                # 解析指令
-                parsed_result = nlp_parser.parse_instruction(instruction)
-                print(f"  解析结果: {parsed_result['operations']}")
-                print(f"  置信度: {parsed_result['confidence_score']:.2f}")
-                
-                # 验证指令
-                validation = nlp_parser.validate_instruction(instruction)
-                if validation['is_valid']:
-                    print("  ✓ 指令有效")
-                else:
-                    print(f"  ✗ 指令无效: {validation['errors']}")
-                
-            except Exception as e:
-                print(f"  ✗ 处理失败: {e}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"✗ NLP测试失败: {e}")
-        return False
+    # 创建测试Persona
+    persona = PersonaModel(
+        name="测试剪辑师",
+        description="这是一个测试用的剪辑师Persona",
+        category=PersonaCategory.CREATIVE,
+        author="test_user"
+    )
+    
+    # 测试基本属性
+    assert persona.metadata.name == "测试剪辑师"
+    assert persona.metadata.category == PersonaCategory.CREATIVE
+    assert persona.metadata.author == "test_user"
+    print("✅ 基本属性测试通过")
+    
+    # 测试添加标签
+    persona.add_tag("测试")
+    persona.add_tag("创意")
+    assert len(persona.metadata.tags) == 2
+    assert "测试" in persona.metadata.tags
+    print("✅ 标签功能测试通过")
+    
+    # 测试风格偏好更新
+    persona.update_style_preferences({
+        "fast_paced": 0.8,
+        "visual_complexity": 0.7
+    })
+    assert persona.style_preferences.fast_paced == 0.8
+    assert persona.style_preferences.visual_complexity == 0.7
+    print("✅ 风格偏好更新测试通过")
+    
+    # 测试序列化
+    persona_dict = persona.to_dict()
+    assert isinstance(persona_dict, dict)
+    assert persona_dict['metadata']['name'] == "测试剪辑师"
+    print("✅ 序列化测试通过")
+    
+    print("🔹 Persona模型测试完成\n")
 
-def test_persona_creation():
-    """测试人格创建功能"""
-    print("\n" + "=" * 60)
-    print("测试人格创建功能")
-    print("=" * 60)
-    
-    try:
-        from clip_persona_studio import ClipPersonaStudio
-        studio = ClipPersonaStudio()
-        print("✓ ClipPersonaStudio 初始化成功")
-        
-        # 测试用户ID和人格名称
-        user_id = "test_user_001"
-        persona_name = "创意剪辑师"
-        
-        print(f"用户ID: {user_id}")
-        print(f"人格名称: {persona_name}")
-        
-        # 创建新的人格
-        try:
-            persona = studio.create_persona(user_id, persona_name)
-            print(f"✓ 成功创建人格: {persona.persona_name}")
-            print(f"  创建时间: {persona.creation_date}")
-            print(f"  风格摘要: {persona.get_style_summary()}")
-            
-            # 测试风格向量
-            style_vector = persona.style_vector
-            print(f"  语言节奏偏好: {style_vector.language_rhythm}")
-            print(f"  镜头选择偏好: {style_vector.shot_selection}")
-            
-            return True
-            
-        except Exception as e:
-            print(f"✗ 创建人格失败: {e}")
-            return False
-        
-    except Exception as e:
-        print(f"✗ 人格测试失败: {e}")
-        return False
 
-def test_complex_instructions():
-    """测试复杂指令处理"""
-    print("\n" + "=" * 60)
-    print("测试复杂指令处理")
-    print("=" * 60)
+def test_database_functionality():
+    """测试数据库功能"""
+    print("🔹 测试数据库功能...")
     
-    try:
-        from enhanced_nlp_parser import EnhancedNLPParser
-        nlp_parser = EnhancedNLPParser()
-        
-        complex_instructions = [
-            "将视频剪成3段，每段添加不同的转场效果，最后加速1.5倍",
-            "在视频开头添加淡入效果，中间添加文字标题，结尾添加背景音乐",
-            "制作一个30秒的短视频，包含快节奏剪辑和动态特效"
-        ]
-        
-        for instruction in complex_instructions:
-            try:
-                print(f"\n复杂指令: {instruction}")
-                
-                # 解析指令
-                parsed_result = nlp_parser.parse_instruction(instruction)
-                print(f"  复杂度: {parsed_result['complexity']}")
-                print(f"  操作数量: {len(parsed_result['operations'])}")
-                print(f"  目标对象: {parsed_result['target_objects']}")
-                
-                # 显示解析的操作
-                for i, op in enumerate(parsed_result['operations']):
-                    print(f"    操作{i+1}: {op['type']} - {op['description']}")
-                
-            except Exception as e:
-                print(f"  ✗ 处理失败: {e}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"✗ 复杂指令测试失败: {e}")
-        return False
+    # 创建测试数据库
+    test_db_path = "test_persona.db"
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)
+    
+    db = PersonaDatabase(test_db_path)
+    
+    # 创建测试Persona
+    persona = PersonaModel(
+        name="数据库测试剪辑师",
+        description="这是数据库测试用的Persona",
+        category=PersonaCategory.PROFESSIONAL,
+        author="db_test_user"
+    )
+    
+    persona.add_tag("数据库测试")
+    persona.add_tag("专业")
+    persona.update_style_preferences({
+        "fast_paced": 0.6,
+        "professional_quality": 0.9
+    })
+    
+    # 测试创建
+    success = db.create_persona(persona)
+    assert success, "创建Persona失败"
+    print("✅ 创建Persona测试通过")
+    
+    # 测试获取
+    retrieved = db.get_persona(persona.metadata.id)
+    assert retrieved is not None, "获取Persona失败"
+    assert retrieved.metadata.name == persona.metadata.name, "Persona名称不匹配"
+    assert retrieved.metadata.category == persona.metadata.category, "Persona分类不匹配"
+    assert len(retrieved.metadata.tags) == 2, "标签数量不匹配"
+    print("✅ 获取Persona测试通过")
+    
+    # 测试更新
+    persona.metadata.description = "更新后的描述"
+    persona.add_tag("更新测试")
+    success = db.update_persona(persona)
+    assert success, "更新Persona失败"
+    
+    updated = db.get_persona(persona.metadata.id)
+    assert updated.metadata.description == "更新后的描述", "描述更新失败"
+    assert len(updated.metadata.tags) == 3, "标签更新失败"
+    print("✅ 更新Persona测试通过")
+    
+    # 测试列表
+    personas = db.list_personas(author="db_test_user")
+    assert len(personas) >= 1, "列表Persona失败"
+    assert personas[0]['name'] == "数据库测试剪辑师", "列表结果不正确"
+    print("✅ 列表Persona测试通过")
+    
+    # 测试搜索
+    search_results = db.search_personas("数据库")
+    assert len(search_results) >= 1, "搜索Persona失败"
+    assert search_results[0]['name'] == "数据库测试剪辑师", "搜索结果不正确"
+    print("✅ 搜索Persona测试通过")
+    
+    # 测试添加反馈
+    from models.persona_model import UserFeedback
+    feedback = UserFeedback(
+        persona_id=persona.metadata.id,
+        user_id="test_feedback_user",
+        rating=4.5,
+        text_feedback="很棒的Persona！"
+    )
+    
+    success = db.add_user_feedback(feedback)
+    assert success, "添加反馈失败"
+    print("✅ 添加反馈测试通过")
+    
+    # 测试删除
+    success = db.delete_persona(persona.metadata.id)
+    assert success, "删除Persona失败"
+    
+    deleted = db.get_persona(persona.metadata.id)
+    assert deleted is None, "Persona未被正确删除"
+    print("✅ 删除Persona测试通过")
+    
+    # 清理测试数据
+    os.remove(test_db_path)
+    print("🔹 数据库功能测试完成\n")
 
-def test_persona_style_adaptation():
-    """测试人格风格适应"""
-    print("\n" + "=" * 60)
-    print("测试人格风格适应")
-    print("=" * 60)
+
+def test_default_personas():
+    """测试默认Persona"""
+    print("🔹 测试默认Persona...")
     
-    try:
-        from clip_persona_studio import ClipPersonaStudio
-        from enhanced_nlp_parser import EnhancedNLPParser
-        
-        studio = ClipPersonaStudio()
-        nlp_parser = EnhancedNLPParser()
-        
-        # 创建人格
-        user_id = "test_user_002"
-        persona_name = "专业剪辑师"
-        persona = studio.create_persona(user_id, persona_name)
-        
-        print(f"✓ 创建人格: {persona.persona_name}")
-        
-        # 测试用户反馈处理
-        feedback = {
-            'style_preferences': {
-                'language_rhythm': {
-                    'fast_paced': 0.8,
-                    'slow_paced': 0.2
-                },
-                'shot_selection': {
-                    'close_up_frequency': 0.7,
-                    'transition_smoothness': 0.9
-                }
-            },
-            'tags': ['快节奏', '特写镜头', '平滑转场']
-        }
-        
-        try:
-            studio.process_user_feedback(persona, feedback)
-            print("✓ 用户反馈处理完成")
-            print(f"  更新后的风格摘要: {persona.get_style_summary()}")
-            
-            # 测试基于人格的剪辑方案生成
-            user_instruction = "制作一个快节奏的宣传视频"
-            
-            editing_plan = studio.generate_editing_plan(persona, user_instruction, None)
-            print("✓ 剪辑方案生成完成")
-            print(f"  方案置信度: {editing_plan['confidence_score']:.2f}")
-            print(f"  操作数量: {len(editing_plan['operations'])}")
-            print(f"  风格说明: {editing_plan['style_notes']}")
-            
-            for i, op in enumerate(editing_plan['operations']):
-                print(f"    操作{i+1}: {op['type']} - {op['description']}")
-            
-            return True
-            
-        except Exception as e:
-            print(f"✗ 风格适应失败: {e}")
-            return False
-        
-    except Exception as e:
-        print(f"✗ 人格风格测试失败: {e}")
-        return False
+    from models.persona_model import DEFAULT_PERSONAS
+    
+    assert len(DEFAULT_PERSONAS) > 0, "没有默认Persona"
+    
+    for key, persona in DEFAULT_PERSONAS.items():
+        assert isinstance(persona, PersonaModel), f"默认Persona {key} 类型不正确"
+        assert persona.metadata.name is not None, f"默认Persona {key} 缺少名称"
+        assert persona.metadata.description is not None, f"默认Persona {key} 缺少描述"
+        assert persona.metadata.author == "system", f"默认Persona {key} 作者应为system"
+        print(f"✅ 默认Persona {key} ({persona.metadata.name}) 验证通过")
+    
+    print("🔹 默认Persona测试完成\n")
+
+
+def test_persona_categories():
+    """测试Persona分类"""
+    print("🔹 测试Persona分类...")
+    
+    # 测试所有分类都可以正常创建
+    categories = [
+        PersonaCategory.CREATIVE,
+        PersonaCategory.PROFESSIONAL,
+        PersonaCategory.ENTERTAINMENT,
+        PersonaCategory.EDUCATIONAL,
+        PersonaCategory.COMMERCIAL,
+        PersonaCategory.LIFESTYLE
+    ]
+    
+    for category in categories:
+        persona = PersonaModel(
+            name=f"{category.value}_测试",
+            description=f"测试{category.value}分类",
+            category=category,
+            author="category_test"
+        )
+        assert persona.metadata.category == category, f"分类 {category} 设置失败"
+        print(f"✅ 分类 {category.value} 测试通过")
+    
+    print("🔹 Persona分类测试完成\n")
+
 
 def main():
-    """主函数"""
-    print("简化版ClipPersona Studio 测试程序")
-    print("专注于人格生成和自然语言处理功能测试")
+    """主测试函数"""
+    print("🚀 开始简化的Persona系统测试\n")
+    print("=" * 50)
     
-    # 测试基本导入
-    if not test_basic_imports():
-        print("\n基本模块导入失败，无法继续测试")
-        return
-    
-    # 测试NLP功能
-    test_nlp_parser()
-    
-    # 测试人格创建
-    test_persona_creation()
-    
-    # 测试复杂指令
-    test_complex_instructions()
-    
-    # 测试人格风格适应
-    test_persona_style_adaptation()
-    
-    print("\n" + "=" * 60)
-    print("简化版测试完成")
-    print("=" * 60)
+    try:
+        # 1. 测试Persona模型
+        test_persona_model()
+        
+        # 2. 测试数据库功能
+        test_database_functionality()
+        
+        # 3. 测试默认Persona
+        test_default_personas()
+        
+        # 4. 测试Persona分类
+        test_persona_categories()
+        
+        print("=" * 50)
+        print("🎉 所有基础测试完成！Persona数据层运行正常。")
+        print("\n📋 测试总结:")
+        print("✅ Persona模型 - 正常")
+        print("✅ 数据库操作 - 正常")
+        print("✅ 默认Persona - 正常")
+        print("✅ 分类系统 - 正常")
+        
+        print("\n🔧 后续步骤:")
+        print("1. 安装完整依赖 (pip install opencv-python scikit-learn)")
+        print("2. 运行完整的测试脚本")
+        print("3. 启动API服务器测试")
+        print("4. 进行前端集成测试")
+        
+    except AssertionError as e:
+        print(f"❌ 测试失败: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ 测试出错: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
