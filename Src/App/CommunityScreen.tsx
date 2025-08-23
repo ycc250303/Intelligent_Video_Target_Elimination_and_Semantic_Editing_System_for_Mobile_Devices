@@ -10,10 +10,13 @@ import {
   TextInput,
   Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from './context/LanguageContext'; // Assuming context is available
 import { PersonaManager } from './utils/personaManager';
 import { builtInPresets, buildInstructionFromPreset } from './utils/personaPresets';
-import { getPersonaDisplayMeta } from './utils/personaDisplay';
+import { getFeaturedPersonas, getPersonaDisplayMeta } from './utils/personaDisplay';
+import { usePersona } from './context/PersonaContext';
+import personaService from './services/personaService';
 
 const { width } = Dimensions.get('window');
 
@@ -28,20 +31,22 @@ const getRelativeFontSize = (percentage: number) => {
 
 const CommunityScreen: React.FC = ({ navigation }: any) => {
   const { currentLanguage } = useLanguage();
+  const { backendPersonas, isBackendConnected, refreshPersonas } = usePersona();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [isLoading, setIsLoading] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const getLocalizedText = (zhText: string, enText: string) => {
     return currentLanguage === 'zh' ? zhText : enText;
   };
 
-  // 全新的分类标签系统
+  // 全新的分类标签系统 - 纯文字版本
   const newCategories = [
     {
       id: 'all',
       zh: '全部',
       en: 'All',
-      icon: '📋',
       color: '#6366F1',
       description: '所有风格',
     },
@@ -49,7 +54,6 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
       id: 'trending',
       zh: '热门',
       en: 'Trending',
-      icon: '🔥',
       color: '#EF4444',
       description: '最受欢迎',
     },
@@ -57,7 +61,6 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
       id: 'creative',
       zh: '创意',
       en: 'Creative',
-      icon: '🎨',
       color: '#F59E0B',
       description: '富有创意',
     },
@@ -65,7 +68,6 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
       id: 'professional',
       zh: '专业',
       en: 'Professional',
-      icon: '💼',
       color: '#10B981',
       description: '商务专业',
     },
@@ -73,7 +75,6 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
       id: 'lifestyle',
       zh: '生活',
       en: 'Lifestyle',
-      icon: '🌟',
       color: '#8B5CF6',
       description: '日常生活',
     },
@@ -81,7 +82,6 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
       id: 'entertainment',
       zh: '娱乐',
       en: 'Entertainment',
-      icon: '🎬',
       color: '#EC4899',
       description: '娱乐搞笑',
     },
@@ -90,21 +90,27 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
   // 基于标签的智能分类映射
   const getSmartCategory = (tag: string): string => {
     const tagMap: { [key: string]: string } = {
+      // 娱乐类
       '搞笑': 'entertainment',
       '电竞': 'entertainment',
       '游戏': 'entertainment',
+
+      // 生活类
       '运动': 'lifestyle',
-      '健身': 'lifestyle',
+      '生活': 'lifestyle',
       '旅行': 'lifestyle',
       '风光': 'lifestyle',
-      '生活': 'lifestyle',
       'Vlog': 'lifestyle',
+
+      // 专业类
       '理性': 'professional',
       '数码': 'professional',
       '科技': 'professional',
       '资讯': 'professional',
-      '新闻': 'professional',
       '测评': 'professional',
+      '新闻': 'professional',
+
+      // 创意类
       '温柔': 'creative',
       '浪漫': 'creative',
       '艺术': 'creative',
@@ -112,40 +118,121 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
       '大片': 'creative',
     };
 
+    // 添加调试信息
+    console.log(`Tag "${tag}" mapped to category: ${tagMap[tag] || 'creative'}`);
     return tagMap[tag] || 'creative';
   };
 
-  const cardsFromPresets = builtInPresets.map((p, index) => ({
-    id: p.id,
-    title: p.name,
-    author: getPersonaDisplayMeta(p.id).author,
-    downloads: getPersonaDisplayMeta(p.id).downloads,
-    description: p.description,
-    image: getPersonaDisplayMeta(p.id).coverImage,
-    tag: p.tag,
-    category: getSmartCategory(p.tag),
-    isHot: index < 3, // 前三个作为热门内容
-    popularity: Math.floor(Math.random() * 1000) + 100, // 模拟人气值
-    createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(), // 随机创建时间
-  }));
+  // 使用后端数据或本地数据生成卡片
+  const cardsFromPresets = React.useMemo(() => {
+    console.log('生成cardsFromPresets');
+    
+    // 优先使用后端数据
+    if (isBackendConnected && (backendPersonas.builtin.length > 0 || backendPersonas.user.length > 0)) {
+      const allBackendPersonas = [...backendPersonas.builtin, ...backendPersonas.user];
+      console.log('使用后端数据，Persona数量:', allBackendPersonas.length);
+      
+      return allBackendPersonas.map((p, index) => {
+        const category = getSmartCategory(p.tag);
+        const card = {
+          id: p.id,
+          title: p.name,
+          author: p.type === 'builtin' ? 'ClipPersona' : '用户创建',
+          downloads: p.downloads || Math.floor(Math.random() * 5000) + 500,
+          description: p.description || '专业的视频剪辑风格',
+          image: p.coverImage || require('../Images/Community/card1.png'),
+          tag: p.tag,
+          category: category,
+          isHot: (p.downloads || 0) > 3000 || index < 3,
+          popularity: p.downloads || Math.floor(Math.random() * 1000) + 100,
+        };
+        console.log(`后端Persona "${p.name}" (tag: "${p.tag}") -> category: "${category}"`);
+        return card;
+      });
+    }
+    
+    // 后备方案：使用本地数据
+    console.log('使用本地数据，预设数量:', getFeaturedPersonas().length);
+    return getFeaturedPersonas().map((p, index) => {
+      const category = getSmartCategory(p.tag);
+      const card = {
+        id: p.id,
+        title: p.name,
+        author: getPersonaDisplayMeta(p.id).author,
+        downloads: getPersonaDisplayMeta(p.id).downloads,
+        description: p.description,
+        image: getPersonaDisplayMeta(p.id).coverImage,
+        tag: p.tag,
+        category: category,
+        isHot: index < 3,
+        popularity: Math.floor(Math.random() * 1000) + 100,
+      };
+      console.log(`本地Persona "${p.name}" (tag: "${p.tag}") -> category: "${category}"`);
+      return card;
+    });
+  }, [backendPersonas, isBackendConnected]);
+
+  // 初始化时加载后端数据
+  React.useEffect(() => {
+    const loadBackendData = async () => {
+      if (isBackendConnected) {
+        setIsLoading(true);
+        try {
+          await refreshPersonas();
+        } catch (error) {
+          console.error('加载后端数据失败:', error);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+    
+    loadBackendData();
+  }, [isBackendConnected]);
 
   const handleDownloadPreset = async (presetId: string) => {
-    const preset = builtInPresets.find(p => p.id === presetId) || builtInPresets[0];
-    const instruction = buildInstructionFromPreset(preset.name, preset.stylePreset);
-    await PersonaManager.addPersona({
-      id: Date.now().toString(),
-      name: preset.name,
-      description: getLocalizedText('来自社区的风格预设', 'Style preset from community'),
-      imageUri: '',
-      tag: preset.tag,
-      progress: 0.8,
-      createdAt: new Date().toISOString(),
-      instruction,
-    });
+    try {
+      // 优先尝试从后端获取详细信息
+      if (isBackendConnected) {
+        const persona = await personaService.getPersonaDetail(presetId);
+        console.log(`成功获取后端Persona: ${persona.name}`);
+        
+        // 添加到本地存储
+        const instruction = `剪辑风格：${persona.name}；基调：${persona.stylePreset.tone}；节奏：${persona.stylePreset.cut.pace}`;
+        await PersonaManager.addPersona({
+          id: Date.now().toString(),
+          name: persona.name,
+          description: persona.description,
+          imageUri: persona.coverImage,
+          tag: persona.tag,
+          progress: 0.8,
+          createdAt: new Date().toISOString(),
+          instruction,
+        });
+        console.log('Persona已下载到本地');
+        return;
+      }
+      
+      // 后备方案：使用本地方法
+      const preset = builtInPresets.find(p => p.id === presetId) || builtInPresets[0];
+      const instruction = buildInstructionFromPreset(preset.name, preset.stylePreset);
+      await PersonaManager.addPersona({
+        id: Date.now().toString(),
+        name: preset.name,
+        description: getLocalizedText('来自社区的风格预设', 'Style preset from community'),
+        imageUri: '',
+        tag: preset.tag,
+        progress: 0.8,
+        createdAt: new Date().toISOString(),
+        instruction,
+      });
+    } catch (error) {
+      console.error('下载Persona时出错:', error);
+    }
   };
 
   const filteredCards = cardsFromPresets.filter(card => {
-    // 分类筛选逻辑
+    // 全新的筛选逻辑
     let matchesCategory = false;
 
     switch (selectedCategory) {
@@ -153,13 +240,15 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
         matchesCategory = true;
         break;
       case 'trending':
-        // 热门逻辑：显示所有内容
-        matchesCategory = true;
+        matchesCategory = card.isHot || card.popularity > 500;
         break;
       default:
         matchesCategory = card.category === selectedCategory;
         break;
     }
+
+    // 添加调试信息
+    console.log(`Filtering card "${card.title}": category="${card.category}", selectedCategory="${selectedCategory}", matches=${matchesCategory}`);
 
     if (!matchesCategory) {
       return false;
@@ -185,75 +274,83 @@ const CommunityScreen: React.FC = ({ navigation }: any) => {
       style={styles.background}
       resizeMode="cover"
     >
-      <View style={styles.headerContainer}>
-        <Text style={styles.headerTitle}>{getLocalizedText('社区', 'Community')}</Text>
-      </View>
-
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder={getLocalizedText('搜索风格、作者或标签...', 'Search styles, authors or tags...')}
-            placeholderTextColor="#999"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-      </View>
-
       <ScrollView
-        horizontal
-        contentContainerStyle={styles.categoriesContainer}
-        showsHorizontalScrollIndicator={false}
+        style={styles.mainScrollView}
+        contentContainerStyle={styles.mainScrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        {newCategories.map((category) => {
-          const isSelected = selectedCategory === category.id;
-          const categoryColor = isSelected ? category.color : 'rgba(255, 255, 255, 0.1)';
-          const borderColor = isSelected ? category.color : 'rgba(255, 255, 255, 0.2)';
-          const textColor = isSelected ? 'white' : 'rgba(255, 255, 255, 0.8)';
+        {/* 页面标题 */}
+        <View style={[styles.headerSection, { paddingTop: insets.top + getRelativeSize(8) }]}>
+          <Text style={styles.headerTitle}>{getLocalizedText('社区', 'Community')}</Text>
+        </View>
 
-          return (
-            <TouchableOpacity
-              key={category.id}
-              style={[
-                styles.newCategoryButton,
-                {
-                  backgroundColor: categoryColor,
-                  borderColor: borderColor,
-                },
-              ]}
-              onPress={() => setSelectedCategory(category.id)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.categoryIcon}>{category.icon}</Text>
-              <Text 
-                style={[
-                  styles.newCategoryButtonText,
-                  { color: textColor },
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit={true}
-                minimumFontScale={0.8}
-              >
-                {getLocalizedText(category.zh, category.en)}
-              </Text>
-              {isSelected && (
-                <View style={[styles.categoryIndicator, styles.whiteIndicator]} />
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+        {/* 搜索区域 */}
+        <View style={styles.searchSection}>
+          <View style={styles.searchBox}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder={getLocalizedText('搜索风格、作者或标签...', 'Search styles, authors or tags...')}
+              placeholderTextColor="#999"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </View>
+        </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.statsContainer}>
+        {/* 分类标签区域 */}
+        <View style={styles.categoriesSection}>
+          <ScrollView
+            horizontal
+            contentContainerStyle={styles.categoriesContainer}
+            showsHorizontalScrollIndicator={false}
+          >
+            {newCategories.map((category) => {
+              const isSelected = selectedCategory === category.id;
+              const categoryColor = isSelected ? category.color : 'rgba(255, 255, 255, 0.1)';
+              const borderColor = isSelected ? category.color : 'rgba(255, 255, 255, 0.2)';
+              const textColor = isSelected ? 'white' : 'rgba(255, 255, 255, 0.8)';
+
+              return (
+                <TouchableOpacity
+                  key={category.id}
+                  style={[
+                    styles.textOnlyCategoryButton,
+                    {
+                      backgroundColor: categoryColor,
+                      borderColor: borderColor,
+                    },
+                  ]}
+                  onPress={() => setSelectedCategory(category.id)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[
+                    styles.textOnlyCategoryButtonText,
+                    { color: textColor },
+                  ]}>
+                    {getLocalizedText(category.zh, category.en)}
+                  </Text>
+                  {isSelected && (
+                    <View style={[styles.categoryIndicator, styles.whiteIndicator]} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* 统计信息 */}
+        <View style={styles.statsSection}>
           <Text style={styles.statsText}>
-            {getLocalizedText(`共 ${filteredCards.length} 个风格`, `${filteredCards.length} Styles Total`)}
+            {getLocalizedText(
+              `共 ${filteredCards.length} 个风格`,
+              `${filteredCards.length} Styles Total (Category: ${selectedCategory})`
+            )}
           </Text>
         </View>
 
-        <View style={styles.cardsGrid}>
+        {/* 内容卡片区域 */}
+        <View style={styles.cardsSection}>
           {filteredCards.map((card) => (
             <TouchableOpacity
               key={card.id}
@@ -293,27 +390,28 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  headerContainer: {
+  mainScrollView: {
+    flex: 1,
+  },
+  mainScrollContent: {
+    flexGrow: 1,
+    paddingBottom: getRelativeSize(25), // 给底部Tab栏留出空间
+  },
+  headerSection: {
     paddingHorizontal: getRelativeSize(6),
-    paddingTop: getRelativeSize(15),
-    paddingBottom: getRelativeSize(8),
+    paddingBottom: getRelativeSize(6),
     alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: getRelativeFontSize(8),
+    fontSize: getRelativeFontSize(7.5),
     fontWeight: '800',
     color: 'white',
     textAlign: 'center',
-    marginBottom: getRelativeSize(2),
   },
-  headerSubtitle: {
-    fontSize: getRelativeFontSize(4),
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'center',
-  },
-  searchContainer: {
+  searchSection: {
     paddingHorizontal: getRelativeSize(6),
-    marginBottom: getRelativeSize(4),
+    marginBottom: getRelativeSize(5),
   },
   searchBox: {
     flexDirection: 'row',
@@ -321,51 +419,46 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: getRelativeSize(12),
     paddingHorizontal: getRelativeSize(5),
-    paddingVertical: getRelativeSize(4),
+    paddingVertical: getRelativeSize(2),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
+  categoriesSection: {
+    marginBottom: getRelativeSize(5),
+  },
   categoriesContainer: {
     paddingHorizontal: getRelativeSize(6),
-    marginBottom: getRelativeSize(5),
     paddingVertical: getRelativeSize(2),
   },
-  newCategoryButton: {
-    flexDirection: 'column',
+  textOnlyCategoryButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: getRelativeSize(4),
-    paddingHorizontal: getRelativeSize(5),
-    paddingVertical: getRelativeSize(5),
+    borderRadius: getRelativeSize(6),
+    paddingHorizontal: getRelativeSize(4),
+    paddingVertical: getRelativeSize(2.5),
     marginRight: getRelativeSize(3),
-    borderWidth: 2,
-    minWidth: getRelativeSize(22),
-    minHeight: getRelativeSize(18),
+    borderWidth: 1.5,
     position: 'relative',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  categoryIcon: {
-    fontSize: getRelativeFontSize(4.5),
-    marginBottom: getRelativeSize(1.5),
-    lineHeight: getRelativeFontSize(4.5),
-  },
-  newCategoryButtonText: {
-    fontSize: getRelativeFontSize(3.8),
+  textOnlyCategoryButtonText: {
+    fontSize: getRelativeFontSize(3.5),
     fontWeight: '600',
     textAlign: 'center',
-    lineHeight: getRelativeFontSize(4.5),
-    marginTop: getRelativeSize(0.5),
   },
   categoryIndicator: {
     position: 'absolute',
     bottom: getRelativeSize(-1),
-    width: getRelativeSize(10),
-    height: getRelativeSize(1),
-    borderRadius: getRelativeSize(0.5),
+    left: '80%',
+    marginLeft: getRelativeSize(-1.5),
+    width: getRelativeSize(7),
+    height: getRelativeSize(0.8),
+    borderRadius: getRelativeSize(0.4),
   },
   whiteIndicator: {
     backgroundColor: 'white',
@@ -381,12 +474,8 @@ const styles = StyleSheet.create({
     fontSize: getRelativeFontSize(4.2),
     paddingVertical: 0,
   },
-  scrollContent: {
-    flexGrow: 1,
+  statsSection: {
     paddingHorizontal: getRelativeSize(6),
-    paddingBottom: getRelativeSize(25), // 增加底部间距以避开Tab栏
-  },
-  statsContainer: {
     marginBottom: getRelativeSize(5),
   },
   statsText: {
@@ -394,8 +483,8 @@ const styles = StyleSheet.create({
     fontSize: getRelativeFontSize(3.5),
     textAlign: 'center',
   },
-  cardsGrid: {
-    gap: getRelativeSize(4),
+  cardsSection: {
+    paddingHorizontal: getRelativeSize(6),
   },
   card: {
     backgroundColor: 'transparent',
@@ -407,8 +496,8 @@ const styles = StyleSheet.create({
     marginBottom: getRelativeSize(3),
   },
   cardImage: {
-    width: '105%',
-    height: getRelativeSize(45),
+    width: '100%',
+    //height: getRelativeSize(45),
     borderTopLeftRadius: getRelativeSize(4),
     borderTopRightRadius: getRelativeSize(4),
     marginLeft: getRelativeSize(-2),

@@ -6,6 +6,7 @@ import logging
 import netifaces  # 用于获取网络接口信息
 from nlp_parser import process_instruction, DialogueManager
 from video_editor import MoviePyVideoEditor
+from persona_manager import PersonaManager
 import mimetypes
 import re
 
@@ -70,6 +71,8 @@ class FileManager:
 file_manager = FileManager()
 # 创建对话管理器实例
 dialogue_manager = DialogueManager()
+# 创建Persona管理器实例
+persona_manager = PersonaManager()
 
 @app.after_request
 def after_request(response):
@@ -123,7 +126,11 @@ def root():
             "health_check": "/health-check",
             "upload_video": "/upload-video",
             "process_video": "/process-video",
-            "check_file": "/check-file"
+            "check_file": "/check-file",
+            "personas": "/api/personas",
+            "create_persona": "/api/personas/create",
+            "update_persona": "/api/personas/update",
+            "delete_persona": "/api/personas/delete"
         }
     })
 
@@ -381,6 +388,74 @@ def check_file():
             })
             
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# =================== Persona API 端点 ===================
+
+@app.route('/api/personas', methods=['GET'])
+def get_personas():
+    """获取所有Persona"""
+    try:
+        user_id = request.args.get('user_id', 'default')
+        all_personas = persona_manager.get_all_personas(user_id)
+        
+        return jsonify({
+            "status": "success",
+            "data": all_personas
+        })
+    except Exception as e:
+        logger.error(f"获取Persona列表时出错: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/personas/create', methods=['POST'])
+def create_persona():
+    """创建新的Persona"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "请求数据不能为空"}), 400
+        
+        required_fields = ['name', 'description', 'tag']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"缺少必需字段: {field}"}), 400
+        
+        user_id = data.get('user_id', 'default')
+        
+        persona = persona_manager.create_user_persona(
+            name=data['name'],
+            description=data['description'],
+            tag=data['tag'],
+            user_id=user_id
+        )
+        
+        return jsonify({
+            "status": "success",
+            "message": "Persona创建成功",
+            "data": persona
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"创建Persona时出错: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/personas/<persona_id>/delete', methods=['DELETE'])
+def delete_persona(persona_id):
+    """删除Persona"""
+    try:
+        success = persona_manager.delete_user_persona(persona_id)
+        
+        if not success:
+            return jsonify({"error": "Persona不存在或删除失败"}), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Persona删除成功"
+        })
+        
+    except Exception as e:
+        logger.error(f"删除Persona时出错: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":

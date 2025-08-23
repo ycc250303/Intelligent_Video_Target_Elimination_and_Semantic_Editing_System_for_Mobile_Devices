@@ -16,6 +16,8 @@ import { PersonaManager, Persona } from './utils/personaManager';
 import { builtInPresets } from './utils/personaPresets';
 import { getFeaturedPersonas, getPersonaDisplayMeta } from './utils/personaDisplay';
 import { usePersona } from './context/PersonaContext';
+import personaService from './services/personaService';
+import BackendStatusIndicator from './components/BackendStatusIndicator';
 
 const { width } = Dimensions.get('window');
 
@@ -51,14 +53,53 @@ const myShareItems = [
 
 const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { currentLanguage } = useLanguage();
-  const { applyPreset, applyUserPersona } = usePersona();
+  const { applyPreset, applyUserPersona, backendPersonas, isBackendConnected, refreshPersonas } = usePersona();
   const [myPersonas, setMyPersonas] = useState(defaultPersonas);
   const [_userPersonas, setUserPersonas] = useState<Persona[]>([]);
   const [sharingEnabledMap, setSharingEnabledMap] = useState<Record<string, boolean>>({});
   const [growthData, setGrowthData] = useState<number[]>([]); // 最近7天模拟数据 0-1
+  const [isLoadingBackend, setIsLoadingBackend] = useState(false);
 
   // 加载用户创建的Persona
   useEffect(() => {
+    const loadAllPersonas = async () => {
+      setIsLoadingBackend(true);
+      try {
+        // 优先尝试从后端加载
+        if (isBackendConnected) {
+          await refreshPersonas();
+          
+          // 使用后端数据更新显示
+          if (backendPersonas.user.length > 0) {
+            const userPersonaData = backendPersonas.user.map(persona => ({
+              id: persona.id,
+              icon: { uri: persona.coverImage },
+              name: persona.name,
+              tag: persona.tag,
+              progress: Math.random() * 0.4 + 0.6, // 随机进度
+            }));
+            setMyPersonas([...defaultPersonas, ...userPersonaData]);
+          }
+          
+          // 更新分享状态
+          const initialSharing: Record<string, boolean> = {};
+          [...backendPersonas.builtin, ...backendPersonas.user].forEach(p => { 
+            initialSharing[p.id] = true; 
+          });
+          setSharingEnabledMap(initialSharing);
+        } else {
+          // 后备方案：使用本地数据
+          await loadUserPersonas();
+        }
+      } catch (error) {
+        console.error('Error loading personas:', error);
+        // 如果后端失败，降级使用本地数据
+        await loadUserPersonas();
+      } finally {
+        setIsLoadingBackend(false);
+      }
+    };
+
     const loadUserPersonas = async () => {
       try {
         const personas = await PersonaManager.getAllPersonas();
@@ -76,19 +117,16 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           setMyPersonas(userPersonaData);
         }
       } catch (error) {
-        console.error('Error loading personas:', error);
+        console.error('Error loading local personas:', error);
       }
     };
 
-    loadUserPersonas();
-    // 初始化分享开关（默认开启）
-    const initialSharing: Record<string, boolean> = {};
-    getFeaturedPersonas().forEach(p => { initialSharing[p.id] = true; });
-    setSharingEnabledMap(initialSharing);
+    loadAllPersonas();
+    
     // 生成最近7天成长数据（0.3~1.0 随机）
     const arr: number[] = Array.from({ length: 7 }, () => 0.3 + Math.random() * 0.7);
     setGrowthData(arr);
-  }, []);
+  }, [isBackendConnected]);
 
   // 监听页面焦点，当从创建页面返回时重新加载数据
   useEffect(() => {
@@ -168,6 +206,24 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   // 我的共享数据：精选风格卡 + 用户自定义（展示名称，下载/评论模拟）
   const shareItems = React.useMemo(() => {
+    // 优先使用后端数据
+    if (isBackendConnected && (backendPersonas.builtin.length > 0 || backendPersonas.user.length > 0)) {
+      const builtinItems = backendPersonas.builtin.map(p => ({
+        id: p.id,
+        title: p.name,
+        downloads: p.downloads || Math.floor(1000 + Math.random() * 9000),
+        comments: Math.floor(10 + Math.random() * 90),
+      }));
+      const userItems = backendPersonas.user.map(p => ({
+        id: p.id,
+        title: p.name,
+        downloads: p.downloads || Math.floor(100 + Math.random() * 900),
+        comments: Math.floor(5 + Math.random() * 40),
+      }));
+      return [...builtinItems, ...userItems];
+    }
+    
+    // 后备方案：使用本地数据
     const featured = getFeaturedPersonas().map(p => ({
       id: p.id,
       title: p.name,
@@ -181,7 +237,7 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       comments: Math.floor(5 + Math.random() * 40),
     }));
     return [...featured, ...userItems];
-  }, [_userPersonas]);
+  }, [_userPersonas, backendPersonas, isBackendConnected]);
 
   const toggleShare = (id: string) => {
     setSharingEnabledMap(prev => ({ ...prev, [id]: !prev[id] }));
@@ -196,6 +252,7 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.headerTitleWrapper}>
           <Text style={styles.headerTitle}>{getLocalizedText('Persona', 'Persona')}</Text>
+          <BackendStatusIndicator style={styles.statusIndicator} />
         </View>
 
         {/* Create Persona Button */}
@@ -288,8 +345,7 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             style={styles.mySharingBackground}
             resizeMode="stretch"
           >
-            <ScrollView style={styles.mySharingScroll} showsVerticalScrollIndicator={false}>
-              <View style={styles.mySharingContent}> {/* Inner View for padding */}
+            <View style={styles.mySharingContent}>
               {shareItems.map(item => {
                 const enabled = sharingEnabledMap[item.id] ?? true;
                 return (
@@ -310,8 +366,7 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   </View>
                 );
               })}
-              </View>
-            </ScrollView>
+            </View>
           </ImageBackground>
         </View>
 
@@ -369,6 +424,13 @@ const styles = StyleSheet.create({
     marginTop: 0,
     marginBottom: 0,
     backgroundColor: 'transparent',
+    position: 'relative',
+  },
+  statusIndicator: {
+    position: 'absolute',
+    right: getRelativeSize(6),
+    top: '50%',
+    marginTop: -4,
   },
   headerTitle: {
     fontSize: getRelativeFontSize(7),
@@ -554,16 +616,12 @@ const styles = StyleSheet.create({
   },
   mySharingBackground: {
     width: '100%',
-    height: 180,
+    minHeight: 120,
     borderRadius: 15,
     overflow: 'hidden',
     marginBottom: 20,
   },
-  mySharingScroll: {
-    flex: 1,
-  },
   mySharingContent: {
-    flex: 1,
     padding: 15,
     backgroundColor: 'transparent',
   },

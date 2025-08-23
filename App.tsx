@@ -4,7 +4,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
-import { Platform, Text, View, ImageBackground, StyleSheet, PermissionsAndroid, Alert, Linking, Animated, TouchableOpacity } from 'react-native';
+import { Platform, Text, View, ImageBackground, StyleSheet, PermissionsAndroid, Alert, Linking, Animated, TouchableOpacity, StatusBar, UIManager } from 'react-native';
 import { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MediaPickerScreen from './App/MediaPickerScreen';
@@ -109,9 +109,8 @@ const CustomTabBar: React.FC<MaterialTopTabBarProps> = ({ state, descriptors, na
     <ImageBackground
       source={require('./Images/bottom-tabs.png')}
       style={[styles.tabBarBackground, { 
-        bottom: insets.bottom,
-        height: 100 + insets.bottom,
         paddingBottom: insets.bottom,
+        height: 100 + insets.bottom,
       }]}
       resizeMode="cover"
     >
@@ -411,7 +410,7 @@ const requestPermissions = async () => {
 
 // 主应用组件
 const App: React.FC = () => {
-  // 在应用启动时请求权限
+  // 在应用启动时请求权限并配置系统UI
   useEffect(() => {
     const checkPermissions = async () => {
       const granted = await requestStoragePermissions();
@@ -419,11 +418,29 @@ const App: React.FC = () => {
         console.warn('存储权限未获得，部分功能可能无法正常使用');
       }
     };
+    
+    // 配置系统UI - 隐藏系统导航栏
+    const configureSystemUI = () => {
+      if (Platform.OS === 'android') {
+        // Android - 设置全屏沉浸式模式
+        if (UIManager.setLayoutAnimationEnabledExperimental) {
+          UIManager.setLayoutAnimationEnabledExperimental(true);
+        }
+      }
+    };
+    
     checkPermissions();
+    configureSystemUI();
   }, []);
 
   return (
     <SafeAreaProvider>
+      <StatusBar
+        hidden={true}
+        translucent={true}
+        backgroundColor="transparent"
+        barStyle="light-content"
+      />
       <View style={styles.container}>
         <ImageBackground
           source={require('./Images/background.png')}
@@ -480,13 +497,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     alignItems: 'center',
     width: '100%',
-    height: '100%',
+    height: 100,
+    paddingTop: 20,
   },
   tabBarItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 5,
+    paddingVertical: 25,
   },
 });
 
