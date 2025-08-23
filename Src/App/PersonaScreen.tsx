@@ -288,8 +288,7 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             style={styles.mySharingBackground}
             resizeMode="stretch"
           >
-            <ScrollView style={styles.mySharingScroll} showsVerticalScrollIndicator={false}>
-              <View style={styles.mySharingContent}> {/* Inner View for padding */}
+            <View style={styles.mySharingContent}>
               {shareItems.map(item => {
                 const enabled = sharingEnabledMap[item.id] ?? true;
                 return (
@@ -310,8 +309,7 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   </View>
                 );
               })}
-              </View>
-            </ScrollView>
+            </View>
           </ImageBackground>
         </View>
 
@@ -554,16 +552,12 @@ const styles = StyleSheet.create({
   },
   mySharingBackground: {
     width: '100%',
-    height: 180,
+    minHeight: 120,
     borderRadius: 15,
     overflow: 'hidden',
     marginBottom: 20,
   },
-  mySharingScroll: {
-    flex: 1,
-  },
   mySharingContent: {
-    flex: 1,
     padding: 15,
     backgroundColor: 'transparent',
   },
