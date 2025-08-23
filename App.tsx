@@ -6,6 +6,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { Platform, Text, View, ImageBackground, StyleSheet, PermissionsAndroid, Alert, Linking, Animated, TouchableOpacity } from 'react-native';
 import { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MediaPickerScreen from './App/MediaPickerScreen';
 import EditMediaScreen from './App/EditMediaScreen';
 import SettingsScreen from './App/SettingsScreen';
@@ -97,8 +98,9 @@ const PersonaTabIcon = ({ focused, color }: { focused: boolean; color: string })
 };
 
 // Custom Tab Bar Component
-const CustomTabBar: React.FC<MaterialTopTabBarProps> = ({ state, descriptors, navigation, position }) => {
+const CustomTabBar: React.FC<MaterialTopTabBarProps> = ({ state, descriptors, navigation }) => {
   const { currentLanguage } = useLanguage();
+  const insets = useSafeAreaInsets();
   const getLocalizedText = (zhText: string, enText: string) => {
     return currentLanguage === 'zh' ? zhText : enText;
   };
@@ -106,7 +108,11 @@ const CustomTabBar: React.FC<MaterialTopTabBarProps> = ({ state, descriptors, na
   return (
     <ImageBackground
       source={require('./Images/bottom-tabs.png')}
-      style={styles.tabBarBackground}
+      style={[styles.tabBarBackground, { 
+        bottom: insets.bottom,
+        height: 100 + insets.bottom,
+        paddingBottom: insets.bottom,
+      }]}
       resizeMode="cover"
     >
       <View style={styles.tabBarContainer}>
@@ -197,10 +203,7 @@ type RootStackParamList = {
   MainTabs: undefined;
 };
 
-type EditMediaScreenProps = {
-  navigation: StackNavigationProp<RootStackParamList, 'EditMedia'>;
-  route: RouteProp<RootStackParamList, 'EditMedia'>;
-};
+
 
 const Stack = createStackNavigator<RootStackParamList>();
 const Tab = createMaterialTopTabNavigator<RootStackParamList>();
@@ -239,6 +242,7 @@ const HomeStack = () => {
 // 新增：包含底部导航的组件，将在此处使用 useLanguage
 const MainTabs = () => {
   const { currentLanguage } = useLanguage();
+  const insets = useSafeAreaInsets();
 
   const getLocalizedText = (zhText: string, enText: string) => {
     return currentLanguage === 'zh' ? zhText : enText;
@@ -253,7 +257,7 @@ const MainTabs = () => {
         tabBarActiveTintColor: '#007AFF',
         tabBarInactiveTintColor: 'gray',
         tabBarStyle: {
-          height: 65,
+          height: 65 + insets.bottom,
           backgroundColor: 'transparent',
           borderTopWidth: 0,
           shadowColor: '#000',
@@ -262,6 +266,7 @@ const MainTabs = () => {
           shadowRadius: 5,
           elevation: 10,
           zIndex: 999,
+          paddingBottom: insets.bottom,
         },
         tabBarLabelStyle: {
           fontSize: 12,
@@ -326,7 +331,8 @@ const MainTabs = () => {
   );
 };
 
-// 权限请求函数
+// 权限请求函数 (保留作为备用)
+/*
 const requestPermissions = async () => {
   if (Platform.OS === 'android') {
     try {
@@ -335,7 +341,7 @@ const requestPermissions = async () => {
           PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
           PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
           PermissionsAndroid.PERMISSIONS.READ_MEDIA_AUDIO,
-          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
         ];
 
         const results = await PermissionsAndroid.requestMultiple(permissions);
@@ -401,7 +407,7 @@ const requestPermissions = async () => {
       console.warn('权限请求失败:', err);
     }
   }
-};
+}; */
 
 // 主应用组件
 const App: React.FC = () => {
@@ -417,27 +423,29 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <View style={styles.container}>
-      <ImageBackground
-        source={require('./Images/background.png')}
-        style={styles.backgroundImage}
-        resizeMode="cover"
-      >
-        <LanguageProvider>
-          <UserProvider>
-            <PersonaProvider>
-              <NavigationContainer>
-                <Stack.Navigator screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="MainTabs" component={MainTabs} />
-                  <Stack.Screen name="CreatePersona" component={CreatePersonaScreen} />
-                  <Stack.Screen name="StyleCardDetail" component={StyleCardDetailScreen} />
-                </Stack.Navigator>
-              </NavigationContainer>
-            </PersonaProvider>
-          </UserProvider>
-        </LanguageProvider>
-      </ImageBackground>
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        <ImageBackground
+          source={require('./Images/background.png')}
+          style={styles.backgroundImage}
+          resizeMode="cover"
+        >
+          <LanguageProvider>
+            <UserProvider>
+              <PersonaProvider>
+                <NavigationContainer>
+                  <Stack.Navigator screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="MainTabs" component={MainTabs} />
+                    <Stack.Screen name="CreatePersona" component={CreatePersonaScreen} />
+                    <Stack.Screen name="StyleCardDetail" component={StyleCardDetailScreen} />
+                  </Stack.Navigator>
+                </NavigationContainer>
+              </PersonaProvider>
+            </UserProvider>
+          </LanguageProvider>
+        </ImageBackground>
+      </View>
+    </SafeAreaProvider>
   );
 };
 
@@ -453,10 +461,10 @@ const styles = StyleSheet.create({
   tabBarBackground: {
     height: 100,
     position: 'absolute',
-    bottom: -20,
+    bottom: 0,
     left: 0,
     right: 0,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     backgroundColor: 'transparent',
     borderTopWidth: 0,
