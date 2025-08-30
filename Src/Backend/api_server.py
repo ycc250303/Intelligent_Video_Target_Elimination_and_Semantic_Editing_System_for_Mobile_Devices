@@ -4,18 +4,10 @@ import socket
 import os
 import logging
 import netifaces  # 用于获取网络接口信息
-from nlp_parser import process_instruction, DialogueManager
+from Src.Backend.vivo_nlp_parser import process_instruction, DialogueManager, OPERATIONS
 from video_editor import MoviePyVideoEditor
 import mimetypes
 import re
-
-# 导入新的ClipPersona Studio模块
-from clip_persona_studio import ClipPersonaStudio
-from enhanced_nlp_parser import EnhancedNLPParser
-from enhanced_video_comprehension import EnhancedVideoComprehension
-
-# 导入新的Persona API
-from api.persona_api import persona_bp
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -36,9 +28,6 @@ def get_all_ip_addresses():
 
 app = Flask(__name__)
 
-# 注册Persona API蓝图
-app.register_blueprint(persona_bp)
-
 # 配置 CORS
 CORS(app, resources={
     r"/*": {
@@ -47,13 +36,7 @@ CORS(app, resources={
         "allow_headers": ["Content-Type", "Authorization", "Accept"],
         "supports_credentials": True
     }
-}
 })
-
-# 初始化ClipPersona Studio系统
-clip_persona_studio = ClipPersonaStudio()
-enhanced_nlp_parser = EnhancedNLPParser()
-enhanced_video_comprehension = EnhancedVideoComprehension()
 
 # 文件名映射管理
 class FileManager:
@@ -140,25 +123,7 @@ def root():
             "health_check": "/health-check",
             "upload_video": "/upload-video",
             "process_video": "/process-video",
-            "check_file": "/check-file",
-            "persona": {
-                "create": "/api/persona/create",
-                "get": "/api/persona/get/<id>",
-                "update": "/api/persona/update/<id>",
-                "delete": "/api/persona/delete/<id>",
-                "list": "/api/persona/list",
-                "featured": "/api/persona/featured",
-                "popular": "/api/persona/popular",
-                "search": "/api/persona/search",
-                "analyze_video": "/api/persona/analyze-video",
-                "feedback": "/api/persona/feedback",
-                "generate_plan": "/api/persona/generate-plan",
-                "record_operation": "/api/persona/record-operation",
-                "recommendations": "/api/persona/recommendations",
-                "user_personas": "/api/persona/user/<author>",
-                "statistics": "/api/persona/statistics/<id>",
-                "categories": "/api/persona/categories"
-            }
+            "check_file": "/check-file"
         }
     })
 
@@ -341,50 +306,79 @@ def process_video():
         action, confirmation, _ = process_instruction(instruction)
         
         if action:
-            editor = MoviePyVideoEditor(video_path)
-            try:
-                success = editor.execute_action(action)
-                if not success:
+            # 清理action，去掉assistant:前缀
+            clean_action = action
+            if action.startswith("assistant:"):
+                clean_action = action.replace("assistant:", "").strip()
+            
+            # 解析操作类型和编辑器
+            action_parts = clean_action.strip().split()
+            if len(action_parts) >= 2:
+                operation_name = action_parts[1]
+                editor_type = None
+                
+                # 查找编辑器参数
+                for part in action_parts:
+                    if part.startswith('editor='):
+                        editor_type = part.split('=')[1]
+                        break
+                
+                # 根据操作类型和编辑器选择合适的编辑器
+                # 对于字体相关操作（如add_text），强制使用ffmpeg编辑器以确保字体兼容性
+                if editor_type == 'ffmpeg' or operation_name == 'add_text':
+                    from ffmpeg_editor import FFmpegVideoEditor
+                    editor = FFmpegVideoEditor(video_path)
+                    logger.info(f"使用FFmpeg编辑器处理操作: {operation_name}")
+                else:
+                    # 默认使用 MoviePy 编辑器
+                    from moviepy_editor import MoviePyVideoEditor
+                    editor = MoviePyVideoEditor(video_path)
+                    logger.info(f"使用MoviePy编辑器处理操作: {operation_name}")
+                
+                try:
+                    success = editor.execute_action(clean_action, OPERATIONS)
+                    if not success:
+                        return jsonify({
+                            "status": "error",
+                            "message": "操作执行失败，请检查参数是否正确"
+                        }), 400
+                except Exception as e:
+                    logger.error(f"执行操作时发生异常: {e}")
                     return jsonify({
                         "status": "error",
-                        "message": "操作执行失败，请检查参数是否正确"
+                        "message": f"操作执行失败: {str(e)}"
                     }), 400
-            except Exception as e:
-                logger.error(f"执行操作时发生异常: {e}")
+                
+                # 为处理后的视频创建新的简化文件名
+                output_simplified_name = f"output_{simplified_name}"
+                output_path = os.path.join(upload_folder, output_simplified_name)
+                
+                # 保存处理后的视频
+                editor.output_path = output_path
+                editor.save()
+                editor.close()
+
+                # 确保输出文件存在
+                if not os.path.exists(output_path):
+                    raise Exception("处理后的视频文件未生成")
+
+                # 构建相对路径的URL
+                video_url = f"/uploads/{output_simplified_name}"
+                
+                logger.info(f"视频处理完成，输出URL: {video_url}")
+                logger.info(f"所有处理都在电脑端完成，避免了手机端字体兼容性问题")
+                
+                return jsonify({
+                    "status": "success",
+                    "message": "视频处理完成，已在电脑端生成目标视频",
+                    "output_path": video_url,
+                    "simplified_name": output_simplified_name
+                })
+            else:
                 return jsonify({
                     "status": "error",
-                    "message": f"操作执行失败: {str(e)}"
+                    "message": "操作指令格式错误"
                 }), 400
-            
-            # 为处理后的视频创建新的简化文件名
-            output_simplified_name = f"output_{simplified_name}"
-            output_path = os.path.join(upload_folder, output_simplified_name)
-            
-            # 保存处理后的视频
-            editor.output_path = output_path
-            editor.save()
-            editor.close()
-
-            # 确保输出文件存在
-            if not os.path.exists(output_path):
-                raise Exception("处理后的视频文件未生成")
-
-            # 构建相对路径的URL
-            video_url = f"/uploads/{output_simplified_name}"
-            
-            logger.info(f"视频处理完成，输出URL: {video_url}")
-            
-            return jsonify({
-                "status": "success",
-                "message": confirmation,
-                "output_path": video_url,
-                "simplified_name": output_simplified_name
-            })
-        else:
-            return jsonify({
-                "status": "error",
-                "message": confirmation
-            }), 400
             
     except Exception as e:
         logger.error(f"处理请求时出错: {str(e)}")
@@ -417,293 +411,6 @@ def check_file():
             
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# ClipPersona Studio API端点
-
-@app.route('/api/persona/create', methods=['POST', 'OPTIONS'])
-def create_persona():
-    """创建新的剪辑人格"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'default_user')
-        persona_name = data.get('persona_name')
-        
-        if not persona_name:
-            return jsonify({'error': 'persona_name is required'}), 400
-        
-        # 创建新的人格
-        persona = clip_persona_studio.create_persona(user_id, persona_name)
-        persona.save_persona()
-        
-        return jsonify({
-            'success': True,
-            'persona': {
-                'user_id': persona.user_id,
-                'persona_name': persona.persona_name,
-                'creation_date': persona.creation_date.isoformat(),
-                'style_summary': persona.get_style_summary()
-            }
-        })
-    
-    except Exception as e:
-        logger.error(f"创建人格失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/persona/get', methods=['POST', 'OPTIONS'])
-def get_persona():
-    """获取用户的人格"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'default_user')
-        persona_name = data.get('persona_name')
-        
-        if not persona_name:
-            return jsonify({'error': 'persona_name is required'}), 400
-        
-        # 获取人格
-        persona = clip_persona_studio.get_persona(user_id, persona_name)
-        
-        if not persona:
-            return jsonify({'error': 'Persona not found'}), 404
-        
-        return jsonify({
-            'success': True,
-            'persona': {
-                'user_id': persona.user_id,
-                'persona_name': persona.persona_name,
-                'creation_date': persona.creation_date.isoformat(),
-                'last_updated': persona.last_updated.isoformat(),
-                'style_summary': persona.get_style_summary(),
-                'preference_tags': [tag['tag'] for tag in persona.preference_tags],
-                'editing_history_count': len(persona.editing_history)
-            }
-        })
-    
-    except Exception as e:
-        logger.error(f"获取人格失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/persona/analyze-video', methods=['POST', 'OPTIONS'])
-def analyze_video_preferences():
-    """分析视频偏好"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'default_user')
-        persona_name = data.get('persona_name')
-        video_path = data.get('video_path')
-        
-        if not all([persona_name, video_path]):
-            return jsonify({'error': 'persona_name and video_path are required'}), 400
-        
-        # 获取人格
-        persona = clip_persona_studio.get_persona(user_id, persona_name)
-        if not persona:
-            return jsonify({'error': 'Persona not found'}), 404
-        
-        # 分析视频偏好
-        analysis_result = clip_persona_studio.analyze_video_preferences(persona, video_path)
-        
-        return jsonify({
-            'success': True,
-            'analysis': analysis_result
-        })
-    
-    except Exception as e:
-        logger.error(f"分析视频偏好失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/persona/feedback', methods=['POST', 'OPTIONS'])
-def process_user_feedback():
-    """处理用户反馈"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'default_user')
-        persona_name = data.get('persona_name')
-        feedback = data.get('feedback', {})
-        
-        if not persona_name:
-            return jsonify({'error': 'persona_name is required'}), 400
-        
-        # 获取人格
-        persona = clip_persona_studio.get_persona(user_id, persona_name)
-        if not persona:
-            return jsonify({'error': 'Persona not found'}), 404
-        
-        # 处理反馈
-        clip_persona_studio.process_user_feedback(persona, feedback)
-        
-        return jsonify({
-            'success': True,
-            'message': '反馈已处理并更新人格',
-            'updated_style_summary': persona.get_style_summary()
-        })
-    
-    except Exception as e:
-        logger.error(f"处理用户反馈失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/persona/generate-plan', methods=['POST', 'OPTIONS'])
-def generate_editing_plan():
-    """根据人格和用户指令生成剪辑方案"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'default_user')
-        persona_name = data.get('persona_name')
-        user_instruction = data.get('instruction')
-        video_path = data.get('video_path')
-        
-        if not all([persona_name, user_instruction]):
-            return jsonify({'error': 'persona_name and instruction are required'}), 400
-        
-        # 获取人格
-        persona = clip_persona_studio.get_persona(user_id, persona_name)
-        if not persona:
-            return jsonify({'error': 'Persona not found'}), 404
-        
-        # 生成剪辑方案
-        editing_plan = clip_persona_studio.generate_editing_plan(persona, user_instruction, video_path)
-        
-        return jsonify({
-            'success': True,
-            'editing_plan': editing_plan
-        })
-    
-    except Exception as e:
-        logger.error(f"生成剪辑方案失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/nlp/parse-instruction', methods=['POST', 'OPTIONS'])
-def parse_instruction():
-    """解析自然语言指令"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        instruction = data.get('instruction')
-        context = data.get('context', {})
-        
-        if not instruction:
-            return jsonify({'error': 'instruction is required'}), 400
-        
-        # 解析指令
-        parsed_result = enhanced_nlp_parser.parse_instruction(instruction, context)
-        
-        # 验证指令
-        validation_result = enhanced_nlp_parser.validate_instruction(instruction)
-        
-        return jsonify({
-            'success': True,
-            'parsed_result': parsed_result,
-            'validation': validation_result
-        })
-    
-    except Exception as e:
-        logger.error(f"解析指令失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/nlp/generate-plan', methods=['POST', 'OPTIONS'])
-def generate_nlp_plan():
-    """根据NLP解析结果生成剪辑方案"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        parsed_instruction = data.get('parsed_instruction')
-        persona_style = data.get('persona_style', {})
-        
-        if not parsed_instruction:
-            return jsonify({'error': 'parsed_instruction is required'}), 400
-        
-        # 生成剪辑方案
-        editing_plan = enhanced_nlp_parser.generate_editing_plan(parsed_instruction, persona_style)
-        
-        return jsonify({
-            'success': True,
-            'editing_plan': editing_plan
-        })
-    
-    except Exception as e:
-        logger.error(f"生成NLP剪辑方案失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/video/analyze', methods=['POST', 'OPTIONS'])
-def analyze_video():
-    """综合视频分析"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        video_path = data.get('video_path')
-        analysis_level = data.get('analysis_level', 'full')
-        
-        if not video_path:
-            return jsonify({'error': 'video_path is required'}), 400
-        
-        # 分析视频
-        analysis_result = enhanced_video_comprehension.comprehensive_analysis(video_path, analysis_level)
-        
-        return jsonify({
-            'success': True,
-            'analysis': analysis_result
-        })
-    
-    except Exception as e:
-        logger.error(f"视频分析失败: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/persona/list', methods=['POST', 'OPTIONS'])
-def list_personas():
-    """列出用户的所有人格"""
-    if request.method == 'OPTIONS':
-        return make_response('', 200)
-    
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'default_user')
-        
-        # 获取人格列表（这里需要实现从文件系统读取）
-        persona_dir = f"persona_models"
-        personas = []
-        
-        if os.path.exists(persona_dir):
-            for item in os.listdir(persona_dir):
-                if item.startswith(f"{user_id}_") and os.path.isdir(os.path.join(persona_dir, item)):
-                    persona_name = item.replace(f"{user_id}_", "")
-                    persona = clip_persona_studio.get_persona(user_id, persona_name)
-                    if persona:
-                        personas.append({
-                            'persona_name': persona.persona_name,
-                            'creation_date': persona.creation_date.isoformat(),
-                            'last_updated': persona.last_updated.isoformat(),
-                            'style_summary': persona.get_style_summary()
-                        })
-        
-        return jsonify({
-            'success': True,
-            'personas': personas
-        })
-    
-    except Exception as e:
-        logger.error(f"列出人格失败: {e}")
-        return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
     print("\n" + "="*50)

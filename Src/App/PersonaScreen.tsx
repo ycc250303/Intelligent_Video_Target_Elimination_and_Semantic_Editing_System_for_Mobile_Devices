@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useLanguage } from './context/LanguageContext'; // 导入 useLanguage
 import { PersonaManager, Persona } from './utils/personaManager';
-import { builtInPresets } from './utils/personaPresets';
+// import { builtInPresets } from './utils/personaPresets';
 import { getFeaturedPersonas, getPersonaDisplayMeta } from './utils/personaDisplay';
 import { usePersona } from './context/PersonaContext';
 
@@ -28,7 +28,8 @@ const getRelativeFontSize = (percentage: number) => {
   return Math.round((width * percentage) / 100);
 };
 
-// 默认内置Persona取自 builtInPresets
+// 默认内置Persona取自 builtInPresets - 暂时注释掉
+/*
 const defaultPersonas = builtInPresets.map(p => ({
   id: p.id,
   icon: p.icon,
@@ -36,6 +37,7 @@ const defaultPersonas = builtInPresets.map(p => ({
   tag: p.tag,
   progress: 0.8,
 }));
+*/
 
 const styleCards = getFeaturedPersonas().map(p => ({ id: p.id, image: getPersonaDisplayMeta(p.id).coverImage, title: p.name }));
 
@@ -52,7 +54,6 @@ const myShareItems = [
 const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { currentLanguage } = useLanguage();
   const { applyPreset, applyUserPersona } = usePersona();
-  const [myPersonas, setMyPersonas] = useState(defaultPersonas);
   const [_userPersonas, setUserPersonas] = useState<Persona[]>([]);
   const [sharingEnabledMap, setSharingEnabledMap] = useState<Record<string, boolean>>({});
   const [growthData, setGrowthData] = useState<number[]>([]); // 最近7天模拟数据 0-1
@@ -63,18 +64,6 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       try {
         const personas = await PersonaManager.getAllPersonas();
         setUserPersonas(personas);
-        
-        // 如果有用户创建的Persona，使用用户数据；否则使用默认数据
-        if (personas.length > 0) {
-          const userPersonaData = personas.map(persona => ({
-            id: persona.id,
-            icon: persona.imageUri ? { uri: persona.imageUri } : require('../Images/HomePage/user.png'),
-            name: persona.name,
-            tag: persona.tag,
-            progress: persona.progress,
-          }));
-          setMyPersonas(userPersonaData);
-        }
       } catch (error) {
         console.error('Error loading personas:', error);
       }
@@ -103,19 +92,9 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     try {
       const personas = await PersonaManager.getAllPersonas();
       setUserPersonas(personas);
-      
-      if (personas.length > 0) {
-        const userPersonaData = personas.map(persona => ({
-          id: persona.id,
-          icon: persona.imageUri ? { uri: persona.imageUri } : require('../Images/HomePage/user.png'),
-          name: persona.name,
-          tag: persona.tag,
-          progress: persona.progress,
-        }));
-        setMyPersonas(userPersonaData);
-      } else {
-        setMyPersonas(defaultPersonas);
-      }
+
+      // 不再需要合并，因为现在分别显示用户Persona和内置Persona
+      // 保持myPersonas为空，或者可以移除这个状态
     } catch (error) {
       console.error('Error loading personas:', error);
     }
@@ -199,30 +178,36 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </View>
 
         {/* Create Persona Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.createPersonaButton}
           onPress={() => navigation.navigate('CreatePersona' as never)}
         >
           <Text style={styles.createPersonaButtonText}>{getLocalizedText('创建Persona', 'Create Persona')}</Text>
         </TouchableOpacity>
 
-        {/* 我的Persona */}
-        <View style={styles.sectionWrapper}>
-          <View style={styles.sectionTitleContainer}>
-            <Image source={require('../Images/HomePage/instruct.png')} style={styles.sectionTitleIcon} />
-            <Text style={styles.sectionTitle}>{getLocalizedText('我的Persona', 'My Persona')}</Text>
-          </View>
-            <View style={styles.personaListContent}> {/* Inner View for padding */}
-              {myPersonas.map(persona => (
+        {/* 我的Persona - 放在前面 */}
+        {_userPersonas.length > 0 && (
+          <View style={styles.sectionWrapper}>
+            <View style={styles.sectionTitleContainer}>
+              <Image source={require('../Images/HomePage/instruct.png')} style={styles.sectionTitleIcon} />
+              <Text style={styles.sectionTitle}>{getLocalizedText('我的Persona', 'My Persona')}</Text>
+            </View>
+            <View style={styles.personaListContent}>
+              {_userPersonas.map(persona => (
                 <ImageBackground
                   key={persona.id}
                   source={require('../Images/Community/text_background.png')}
                   style={styles.personaCardBackground}
                   resizeMode="stretch"
                 >
-                  <View style={styles.personaCardContent}> {/* Inner View for content */}
+                  <View style={styles.personaCardContent}>
                     <View style={styles.personaInfo}>
-                      <Image source={persona.icon} style={styles.personaIcon} />
+                      <Image
+                        source={persona.imageUri && persona.imageUri !== 'default_persona_image'
+                          ? { uri: persona.imageUri }
+                          : require('../Images/HomePage/user.png')}
+                        style={styles.personaIcon}
+                      />
                       <View>
                         <Text style={styles.personaName}>{persona.name}</Text>
                         <Text style={styles.personaTag}>{persona.tag}</Text>
@@ -231,21 +216,52 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                     <View style={styles.progressBarBackground}>
                       <View style={[styles.progressBarFill, { width: `${persona.progress * 100}%` }]} />
                     </View>
-                    {/* 仅保留删除按钮，设为当前功能已取消。Persona 仅在编辑页调用 */}
                     {/* 删除按钮 - 只对用户创建的Persona显示 */}
-                    {!builtInPresets.some(p => p.id === persona.id) && (
-                      <TouchableOpacity
-                        style={styles.deletePersonaButton}
-                        onPress={() => handleDeletePersona(persona.id)}
-                      >
-                        <Text style={styles.deletePersonaButtonText}>×</Text>
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      style={styles.deletePersonaButton}
+                      onPress={() => handleDeletePersona(persona.id)}
+                    >
+                      <Text style={styles.deletePersonaButtonText}>×</Text>
+                    </TouchableOpacity>
                   </View>
                 </ImageBackground>
               ))}
             </View>
+          </View>
+        )}
+
+        {/* 内置Persona - 暂时注释掉 */}
+        {/*
+        <View style={styles.sectionWrapper}>
+          <View style={styles.sectionTitleContainer}>
+            <Image source={require('../Images/HomePage/instruct.png')} style={styles.sectionTitleIcon} />
+            <Text style={styles.sectionTitle}>{getLocalizedText('内置Persona', 'Built-in Personas')}</Text>
+          </View>
+          <View style={styles.personaListContent}>
+            {defaultPersonas.map(persona => (
+              <ImageBackground
+                key={persona.id}
+                source={require('../Images/Community/text_background.png')}
+                style={styles.personaCardBackground}
+                resizeMode="stretch"
+              >
+                <View style={styles.personaCardContent}>
+                  <View style={styles.personaInfo}>
+                    <Image source={persona.icon} style={styles.personaIcon} />
+                    <View>
+                      <Text style={styles.personaName}>{persona.name}</Text>
+                      <Text style={styles.tag}>{persona.tag}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.progressBarBackground}>
+                    <View style={[styles.progressBarFill, { width: `${persona.progress * 100}%` }]} />
+                  </View>
+                </View>
+              </ImageBackground>
+            ))}
+          </View>
         </View>
+        */}
 
         {/* 风格卡管理 */}
         <View style={styles.sectionWrapper}>
@@ -329,7 +345,7 @@ const PersonaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                 {growthData.map((v, idx) => (
                   <View key={idx} style={styles.growthBarColumn}>
                     <View style={[styles.growthBar, { height: Math.max(10, Math.round(v * 140)) }]} />
-                    <Text style={styles.growthBarLabel}>{getLocalizedText(['一','二','三','四','五','六','日'][idx], ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][idx])}</Text>
+                    <Text style={styles.growthBarLabel}>{getLocalizedText(['一', '二', '三', '四', '五', '六', '日'][idx], ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][idx])}</Text>
                   </View>
                 ))}
               </View>

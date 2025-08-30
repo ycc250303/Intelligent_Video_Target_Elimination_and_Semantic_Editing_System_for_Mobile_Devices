@@ -118,6 +118,47 @@ class MoviePyVideoEditor(AbstractVideoEditor):
         self._child_clips = []
         logger.info(f"已加载视频: {input_video}, 时长: {self.video_clip.duration}秒")
 
+    def _parse_duration_expression(self, expression: str) -> float:
+        """
+        解析包含"总时长"的表达式，计算具体的时间值。
+        
+        Args:
+            expression: 包含"总时长"的表达式字符串，如"总时长/2"、"总时长*3/4"等
+            
+        Returns:
+            float: 计算后的具体时间值
+        """
+        if not isinstance(expression, str):
+            return float(expression)
+            
+        # 如果表达式不包含"总时长"，直接转换
+        if "总时长" not in expression:
+            try:
+                return float(expression)
+            except ValueError:
+                raise ValueError(f"无法解析时间表达式: {expression}")
+        
+        # 获取视频总时长
+        total_duration = self.video_clip.duration
+        logger.info(f"视频总时长: {total_duration}秒")
+        
+        # 替换"总时长"为实际数值
+        expression = expression.replace("总时长", str(total_duration))
+        logger.info(f"替换后的表达式: {expression}")
+        
+        try:
+            # 安全地计算表达式
+            # 只允许基本的数学运算：+、-、*、/、()
+            allowed_chars = set("0123456789.+-*/() ")
+            if not all(c in allowed_chars for c in expression):
+                raise ValueError(f"表达式包含不允许的字符: {expression}")
+            
+            # 使用eval计算表达式（在受控环境下）
+            result = eval(expression)
+            return float(result)
+        except Exception as e:
+            raise ValueError(f"无法计算时间表达式 '{expression}': {e}")
+
     def trim(self, start: float = 0.0, end: Optional[float] = None):
         """裁剪视频。"""
         end = end if end is not None else self.video_clip.duration
@@ -132,6 +173,11 @@ class MoviePyVideoEditor(AbstractVideoEditor):
 
     def add_transition(self, type: str = "fade", duration: float = 1.0, start_time: float = 0.0):
         """添加转场效果（目前支持淡入淡出）。"""
+        # 将 crossfade 映射到 fade，因为 MoviePy 不支持 crossfade
+        if type == "crossfade":
+            type = "fade"
+            logger.info("将 crossfade 转场类型映射为 fade")
+            
         if type == "fade":
             # 检查开始时间是否有效
             if start_time < 0:
@@ -197,7 +243,7 @@ class MoviePyVideoEditor(AbstractVideoEditor):
         
         Args:
             second_video: 第二个视频文件路径
-            transition: 转场效果类型 ("none", "fade", "crossfade")
+            transition: 转场效果类型 ("none", "fade")
             transition_duration: 转场持续时间（秒）
         """
         if self.video_clip is None:
@@ -286,7 +332,7 @@ class MoviePyVideoEditor(AbstractVideoEditor):
         
         Args:
             video_files: 视频文件路径列表
-            transition: 转场效果类型 ("none", "fade", "crossfade")
+            transition: 转场效果类型 ("none", "fade")
             transition_duration: 转场持续时间（秒）
         """
         if self.video_clip is None:
@@ -725,6 +771,14 @@ class MoviePyVideoEditor(AbstractVideoEditor):
                     try:
                         if param_info['type'] is bool:
                             parsed_params[param_name] = params[param_name].lower() == 'true'
+                        elif param_info['type'] is float and isinstance(params[param_name], str) and "总时长" in params[param_name]:
+                            # 处理包含"总时长"的表达式
+                            logger.info(f"解析总时长表达式: {params[param_name]}");
+                            parsed_params[param_name] = self._parse_duration_expression(params[param_name])
+                            logger.info(f"解析结果: {parsed_params[param_name]}");
+                        elif param_info['type'] is float:
+                            # 处理普通的浮点数参数
+                            parsed_params[param_name] = float(params[param_name])
                         else:
                             parsed_params[param_name] = param_info['type'](params[param_name])
                     except ValueError:

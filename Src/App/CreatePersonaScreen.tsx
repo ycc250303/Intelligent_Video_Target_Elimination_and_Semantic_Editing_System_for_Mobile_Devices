@@ -12,7 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { useLanguage } from './context/LanguageContext';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { launchImageLibrary, ImagePickerResponse, MediaType } from 'react-native-image-picker';
 import { PersonaManager, Persona } from './utils/personaManager';
 
@@ -27,12 +27,36 @@ const getRelativeFontSize = (percentage: number) => {
   return Math.round((width * percentage) / 100);
 };
 
+// 新增：指令历史记录类型
+interface InstructionRecord {
+  id: string;
+  instruction: string;
+  action: string;
+  timestamp: number;
+  videoPath: string;
+}
+
+// 新增：路由参数类型
+interface RouteParams {
+  instructionHistory?: InstructionRecord[];
+  currentSessionId?: string;
+  defaultName?: string;
+  defaultDescription?: string;
+}
+
 const CreatePersonaScreen: React.FC = () => {
   const { currentLanguage } = useLanguage();
   const navigation = useNavigation();
-  const [personaName, setPersonaName] = useState('');
-  const [personaDescription, setPersonaDescription] = useState('');
-  const [selectedImage, _setSelectedImage] = useState<string | null>(null);
+  const route = useRoute();
+  const params = (route.params || {}) as RouteParams;
+
+  const [personaName, setPersonaName] = useState(params.defaultName || '');
+  const [personaDescription, setPersonaDescription] = useState(params.defaultDescription || '');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  // 新增：指令历史
+  const instructionHistory = params.instructionHistory || [];
+  const currentSessionId = params.currentSessionId;
 
   const getLocalizedText = (zhText: string, enText: string) => {
     return currentLanguage === 'zh' ? zhText : enText;
@@ -58,7 +82,7 @@ const CreatePersonaScreen: React.FC = () => {
       } else if (response.assets && response.assets[0]) {
         const imageUri = response.assets[0].uri;
         if (imageUri) {
-          _setSelectedImage(imageUri);
+          setSelectedImage(imageUri);
         }
       }
     });
@@ -81,29 +105,27 @@ const CreatePersonaScreen: React.FC = () => {
       return;
     }
 
-    if (!selectedImage) {
-      Alert.alert(
-        getLocalizedText('错误', 'Error'),
-        getLocalizedText('请选择一张图片', 'Please select an image')
-      );
-      return;
-    }
+    // 图片不再是必填项，如果没有选择则使用默认图片
+    const imageUri = selectedImage || 'default_persona_image';
 
     try {
-      // 创建Persona对象
+      // 创建Persona对象，包含指令历史
       const newPersona: Persona = {
         id: Date.now().toString(),
         name: personaName.trim(),
         description: personaDescription.trim(),
-        imageUri: selectedImage,
+        imageUri: imageUri,
         tag: getLocalizedText('自定义', 'Custom'),
-        progress: 0.5, // 默认进度
+        progress: 0.8, // 默认进度
         createdAt: new Date().toISOString(),
+        // 新增：保存指令历史
+        instructionHistory: instructionHistory,
+        sessionId: currentSessionId,
       };
 
       // 保存Persona到本地存储
       const success = await PersonaManager.addPersona(newPersona);
-      
+
       if (success) {
         // 显示成功消息
         Alert.alert(
@@ -116,7 +138,7 @@ const CreatePersonaScreen: React.FC = () => {
                 // 清空表单
                 setPersonaName('');
                 setPersonaDescription('');
-                _setSelectedImage(null);
+                setSelectedImage(null);
                 // 返回上一页
                 navigation.goBack();
               },
@@ -163,9 +185,9 @@ const CreatePersonaScreen: React.FC = () => {
             {selectedImage ? (
               <View style={styles.selectedImageContainer}>
                 <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.removeImageButton}
-                  onPress={() => _setSelectedImage(null)}
+                  onPress={() => setSelectedImage(null)}
                 >
                   <Text style={styles.removeImageButtonText}>×</Text>
                 </TouchableOpacity>
@@ -206,6 +228,24 @@ const CreatePersonaScreen: React.FC = () => {
             textAlignVertical="top"
           />
         </View>
+
+        {/* 新增：指令历史显示 */}
+        {instructionHistory.length > 0 && (
+          <View style={styles.sectionWrapper}>
+            <Text style={styles.sectionTitle}>{getLocalizedText('指令历史', 'Instruction History')}</Text>
+            <View style={styles.instructionHistoryContainer}>
+              {instructionHistory.map((record, index) => (
+                <View key={record.id} style={styles.instructionItem}>
+                  <Text style={styles.instructionIndex}>{index + 1}</Text>
+                  <View style={styles.instructionContent}>
+                    <Text style={styles.instructionText}>{record.instruction}</Text>
+                    <Text style={styles.instructionAction}>{record.action}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Create Button */}
         <TouchableOpacity style={styles.createButton} onPress={handleCreatePersona}>
@@ -351,6 +391,40 @@ const styles = StyleSheet.create({
     fontSize: getRelativeFontSize(4),
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  instructionHistoryContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: getRelativeSize(2.5),
+    padding: getRelativeSize(3),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  instructionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: getRelativeSize(1),
+    paddingVertical: getRelativeSize(1),
+    paddingHorizontal: getRelativeSize(2),
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: getRelativeSize(1),
+  },
+  instructionIndex: {
+    fontSize: getRelativeFontSize(3.5),
+    fontWeight: 'bold',
+    color: 'white',
+    marginRight: getRelativeSize(2),
+  },
+  instructionContent: {
+    flex: 1,
+  },
+  instructionText: {
+    fontSize: getRelativeFontSize(3.5),
+    color: 'white',
+    marginBottom: getRelativeSize(0.5),
+  },
+  instructionAction: {
+    fontSize: getRelativeFontSize(3),
+    color: 'rgba(255, 255, 255, 0.7)',
   },
 });
 

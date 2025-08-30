@@ -16,6 +16,7 @@ import {
 import Video, { VideoRef } from 'react-native-video';
 import ChatScreen from './components/ChatScreen';
 import RNFS from 'react-native-fs';
+
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { checkStoragePermissions, requestStoragePermissions } from './utils/permissionManager';
 import { saveDraftVideo } from './utils/draftVideoManager';
@@ -25,7 +26,7 @@ import { useLanguage } from './context/LanguageContext';
 
 // API配置
 const API_CONFIG = {
-  BASE_URL: 'http://139.224.33.240:8000',
+  BASE_URL: 'http://1.1.1.171:8000',
   ENDPOINTS: {
     PROCESS_VIDEO: '/process-video',
     CHECK_FILE: '/check-file'
@@ -80,6 +81,18 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
   const { currentLanguage } = useLanguage();
   const [lastAppliedInstruction, setLastAppliedInstruction] = useState<string | null>(null);
 
+  // 新增：指令历史记录
+  const [instructionHistory, setInstructionHistory] = useState<Array<{
+    id: string;
+    instruction: string;
+    action: string;
+    timestamp: number;
+    videoPath: string;
+  }>>([]);
+
+  // 新增：当前编辑会话ID
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
   // 辅助函数：根据当前语言获取文本
   const getLocalizedText = useCallback((zhText: string, enText: string) => {
     return currentLanguage === 'zh' ? zhText : enText;
@@ -119,6 +132,12 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
     if (isVideo && initialMediaUri) {
       setVideoPath(initialMediaUri);
     }
+
+    // 初始化新的编辑会话
+    const newSessionId = `session_${Date.now()}`;
+    setCurrentSessionId(newSessionId);
+    setInstructionHistory([]); // 清空历史记录
+    console.log('开始新的编辑会话:', newSessionId);
   }, [initialMediaUri, isVideo]);
 
   // 检查权限状态
@@ -168,7 +187,7 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
   }, [navigation]);
 
   // 保留占位，避免未来需求时大改
-  const handleMediaLayout = () => {};
+  const handleMediaLayout = () => { };
 
   const checkAndUploadVideo = async (uri: string): Promise<boolean> => {
     if (!uri) {
@@ -185,11 +204,21 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
     setIsUploading(true);
     try {
       console.log('准备上传视频:', uri);
+
+      // 确保文件路径格式正确
+      let normalizedUri = uri;
+      if (!normalizedUri.startsWith('file://')) {
+        normalizedUri = 'file://' + (normalizedUri.startsWith('/') ? normalizedUri : '/' + normalizedUri);
+      }
+      console.log('标准化后的URI:', normalizedUri);
+
       // 检查文件是否存在
       try {
-        const fileExists = await RNFS.exists(uri.replace('file://', ''));
+        const filePath = normalizedUri.replace('file://', '');
+        console.log('检查文件路径:', filePath);
+        const fileExists = await RNFS.exists(filePath);
         if (!fileExists) {
-          throw new Error('视频文件不存在');
+          throw new Error(`视频文件不存在: ${filePath}`);
         }
         console.log('本地文件检查通过');
       } catch (error: any) {
@@ -198,7 +227,7 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
       }
 
       // 先检查文件是否已经上传
-      const filename = uri.split('/').pop() || '';
+      const filename = normalizedUri.split('/').pop() || '';
       console.log('检查文件是否已上传:', filename);
 
       try {
@@ -219,7 +248,7 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
 
         if (checkData.status === 'success' && checkData.exists) {
           console.log('文件已存在于服务器');
-          setLastUploadedUri(uri);
+          setLastUploadedUri(normalizedUri);
           return true;
         }
       } catch (error) {
@@ -231,7 +260,7 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
       console.log('开始构建上传表单');
       const formData = new FormData();
       formData.append('video', {
-        uri: uri,
+        uri: normalizedUri,
         type: 'video/mp4',
         name: filename,
       } as any);
@@ -261,7 +290,7 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
 
       if (data.status === 'success') {
         console.log('视频上传成功');
-        setLastUploadedUri(uri);
+        setLastUploadedUri(normalizedUri);
         return true;
       } else {
         throw new Error(data.message || '上传失败');
@@ -293,13 +322,20 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
       setLastUploadedUri(null);
       setIsPlaying(true);
 
-      // 添加选择确认消息
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        text: getLocalizedText('已选择此版本视频进行后续编辑', 'This version of the video has been selected for further editing'),
-        isUser: false,
-        type: 'text'
-      }]);
+      // 检查是否是回退到之前的版本
+      const isRollback = instructionHistory.some(record => record.videoPath === videoPath);
+      if (isRollback) {
+        // 如果是回退，删除该版本之后的所有操作
+        rollbackToVersion(videoPath);
+      } else {
+        // 如果是新版本，添加选择确认消息
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          text: getLocalizedText('已选择此版本视频进行后续编辑', 'This version of the video has been selected for further editing'),
+          isUser: false,
+          type: 'text'
+        }]);
+      }
 
       // 预先上传新选择的视频
       console.log('开始预上传视频');
@@ -436,6 +472,46 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
     }]);
   };
 
+  // 新增：记录指令历史
+  const recordInstruction = (instruction: string, action: string, videoPath: string) => {
+    const newRecord = {
+      id: `instruction_${Date.now()}`,
+      instruction,
+      action,
+      timestamp: Date.now(),
+      videoPath,
+    };
+
+    setInstructionHistory(prev => [...prev, newRecord]);
+    console.log('记录指令历史:', newRecord);
+  };
+
+  // 新增：回退到指定版本，删除后续操作
+  const rollbackToVersion = (targetVideoPath: string) => {
+    // 找到目标版本在历史中的位置
+    const targetIndex = instructionHistory.findIndex(record => record.videoPath === targetVideoPath);
+
+    if (targetIndex !== -1) {
+      // 删除目标版本之后的所有操作
+      const newHistory = instructionHistory.slice(0, targetIndex + 1);
+      setInstructionHistory(newHistory);
+      console.log(`回退到版本 ${targetIndex + 1}，删除了 ${instructionHistory.length - targetIndex - 1} 个后续操作`);
+
+      // 更新当前视频路径
+      setVideoPath(targetVideoPath);
+      setCurrentMediaUri(targetVideoPath);
+      setCurrentProcessedVideo(null);
+
+      // 添加回退确认消息
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        text: getLocalizedText('已回退到指定版本，后续操作已删除', 'Rolled back to specified version, subsequent operations deleted'),
+        isUser: false,
+        type: 'text'
+      }]);
+    }
+  };
+
   const handleNaturalLanguageCommand = async (command: string) => {
     if (!currentMediaUri) {
       Alert.alert(getLocalizedText('错误', 'Error'), getLocalizedText('没有选择视频', 'No video selected'));
@@ -486,15 +562,7 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
 
       const data = await nlpResponse.json();
 
-      // 显示 NLP 解析的回复
-      if (data.message) {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          text: data.message,
-          isUser: false,
-          type: 'text'
-        }]);
-      }
+      // 不再显示确认消息，直接处理视频结果
 
       if (data.status === 'success' && data.output_path) {
         try {
@@ -503,6 +571,10 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
           if (!localPath) {
             throw new Error('下载处理后的视频失败');
           }
+
+          // 记录指令历史
+          recordInstruction(command, data.message || '视频处理', localPath);
+
           await handleProcessedVideo(localPath);
         } catch (error: any) {
           console.error('处理视频结果时出错:', error);
@@ -516,6 +588,202 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
       Alert.alert(getLocalizedText('错误', 'Error'), getLocalizedText(`处理视频失败: ${error.message}`, `Video processing failed: ${error.message}`));
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // 新增：逐步执行Persona指令的函数
+  const [stepByStepInstructions, setStepByStepInstructions] = useState<Array<{ instruction: string, action: string }>>([]);
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [isStepByStepExecuting, setIsStepByStepExecuting] = useState(false);
+
+  const startStepByStepExecution = (instructions: Array<{ instruction: string, action: string }>) => {
+    console.log('开始逐步执行，指令数量:', instructions.length);
+    setStepByStepInstructions(instructions);
+    setCurrentStepIndex(0);
+    setIsStepByStepExecuting(true);
+
+    // 显示开始执行的消息
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      text: getLocalizedText(`开始执行Persona指令，共 ${instructions.length} 步`, `Starting Persona instruction execution, ${instructions.length} steps total`),
+      isUser: false,
+      type: 'text',
+    }]);
+
+    // 使用 setTimeout 确保状态更新完成后再开始执行
+    setTimeout(() => {
+      executeNextStep(0, instructions, currentMediaUri);
+    }, 100);
+  };
+
+  const executeNextStep = async (stepIndex: number, instructions: Array<{ instruction: string, action: string }>, currentVideoPath: string) => {
+    console.log(`执行步骤 ${stepIndex + 1}/${instructions.length}`);
+
+    if (stepIndex >= instructions.length) {
+      // 所有步骤执行完毕
+      setIsStepByStepExecuting(false);
+      setStepByStepInstructions([]);
+      setCurrentStepIndex(0);
+
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        text: getLocalizedText('Persona指令执行完成！', 'Persona instruction execution complete!'),
+        isUser: false,
+        type: 'text',
+      }]);
+
+      Alert.alert(
+        getLocalizedText('执行完成', 'Execution Complete'),
+        getLocalizedText('所有Persona指令已执行完毕', 'All Persona instructions have been executed'),
+        [{ text: getLocalizedText('确定', 'OK') }]
+      );
+      return;
+    }
+
+    const currentStep = instructions[stepIndex];
+
+    // 显示当前步骤信息
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      text: getLocalizedText(`步骤 ${stepIndex + 1}/${instructions.length}: ${currentStep.instruction}`, `Step ${stepIndex + 1}/${instructions.length}: ${currentStep.instruction}`),
+      isUser: false,
+      type: 'text',
+    }]);
+
+    try {
+      // 确定当前要处理的视频路径
+      // 使用传入的 currentVideoPath 参数，确保每个步骤都基于上一步的结果
+      let videoToProcess = currentVideoPath;
+      console.log(`步骤 ${stepIndex + 1} 处理视频: ${videoToProcess}`);
+
+      // 验证视频路径的有效性
+      if (!videoToProcess) {
+        throw new Error('视频路径为空');
+      }
+
+      // 确保文件路径格式正确
+      if (!videoToProcess.startsWith('file://')) {
+        videoToProcess = 'file://' + (videoToProcess.startsWith('/') ? videoToProcess : '/' + videoToProcess);
+      }
+
+      // 检查文件是否存在
+      try {
+        const filePath = videoToProcess.replace('file://', '');
+        const fileExists = await RNFS.exists(filePath);
+        if (!fileExists) {
+          throw new Error(`视频文件不存在: ${filePath}`);
+        }
+        console.log(`步骤 ${stepIndex + 1} 文件存在性检查通过: ${filePath}`);
+      } catch (error: any) {
+        console.error(`步骤 ${stepIndex + 1} 文件检查失败:`, error);
+        throw new Error(`文件检查失败: ${error.message}`);
+      }
+
+      // 检查并上传视频
+      const uploadSuccess = await checkAndUploadVideo(videoToProcess);
+      if (!uploadSuccess) {
+        throw new Error('视频上传失败');
+      }
+
+      // 发送到 nlp_parser 进行解析
+      const nlpResponse = await fetch(`${API_CONFIG.BASE_URL}/process-video`, {
+        method: 'POST',
+        body: (() => {
+          const formData = new FormData();
+          formData.append('video', {
+            uri: videoToProcess,
+            type: 'video/mp4',
+            name: videoToProcess.split('/').pop() || 'video.mp4',
+          } as any);
+          formData.append('instruction', currentStep.instruction);
+          return formData;
+        })(),
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!nlpResponse.ok) {
+        const errorBody = await nlpResponse.text();
+        console.error(
+          `处理步骤指令失败: 状态码 ${nlpResponse.status}, 状态文本: ${nlpResponse.statusText}, 响应体: ${errorBody}`
+        );
+        throw new Error(
+          `处理步骤指令失败: ${nlpResponse.status} ${nlpResponse.statusText} - ${errorBody.substring(0, 100)}...`
+        );
+      }
+
+      const data = await nlpResponse.json();
+
+      if (data.status === 'success' && data.output_path) {
+        try {
+          const videoUrl = `${API_CONFIG.BASE_URL}${data.output_path}`;
+          const localPath = await downloadVideo(videoUrl);
+          if (!localPath) {
+            throw new Error('下载处理后的视频失败');
+          }
+
+          // 记录指令历史
+          recordInstruction(currentStep.instruction, data.message || '视频处理', localPath);
+
+          // 更新当前媒体URI为处理后的视频
+          setCurrentMediaUri(localPath);
+          setVideoPath(localPath);
+
+          // 显示步骤完成消息
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            text: getLocalizedText(`步骤 ${stepIndex + 1} 执行完成`, `Step ${stepIndex + 1} completed`),
+            isUser: false,
+            type: 'text',
+          }]);
+
+          // 等待一段时间后继续下一步
+          setTimeout(() => {
+            executeNextStep(stepIndex + 1, instructions, localPath);
+          }, 1000);
+
+        } catch (error: any) {
+          console.error('处理步骤视频结果时出错:', error);
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            text: getLocalizedText(`步骤 ${stepIndex + 1} 执行失败: ${error.message}`, `Step ${stepIndex + 1} failed: ${error.message}`),
+            isUser: false,
+            type: 'text',
+          }]);
+
+          // 即使失败也继续下一步
+          setTimeout(() => {
+            executeNextStep(stepIndex + 1, instructions, videoToProcess);
+          }, 2000);
+        }
+      } else {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          text: getLocalizedText(`步骤 ${stepIndex + 1} 执行失败: ${data.message || '未知错误'}`, `Step ${stepIndex + 1} failed: ${data.message || 'Unknown error'}`),
+          isUser: false,
+          type: 'text',
+        }]);
+
+        // 即使失败也继续下一步
+        setTimeout(() => {
+          executeNextStep(stepIndex + 1, instructions, videoToProcess);
+        }, 2000);
+      }
+    } catch (error: any) {
+      console.error('处理步骤指令时出错:', error.message, error.stack);
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        text: getLocalizedText(`步骤 ${stepIndex + 1} 执行失败: ${error.message}`, `Step ${stepIndex + 1} failed: ${error.message}`),
+        isUser: false,
+        type: 'text',
+      }]);
+
+      // 即使失败也继续下一步
+      setTimeout(() => {
+        executeNextStep(stepIndex + 1, instructions, currentVideoPath);
+      }, 2000);
     }
   };
 
@@ -557,6 +825,11 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
             ]);
             handleNaturalLanguageCommand(instruction);
           },
+          // 新增：支持逐步执行Persona指令
+          onApplyStepByStep: (instructions: Array<{ instruction: string, action: string }>) => {
+            // 开始逐步执行Persona指令
+            startStepByStepExecution(instructions);
+          },
         });
       }}
     >
@@ -573,31 +846,14 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
           const nameMatch = instruction ? instruction.match(/使用风格:\s*([^；\n]+)/) : null;
           const name = nameMatch ? nameMatch[1] : getLocalizedText('我的Persona', 'My Persona');
           const description = instruction ? instruction.slice(0, 120) : getLocalizedText('从当前剪辑偏好生成', 'Generated from current editing preference');
-          const newPersona = {
-            id: Date.now().toString(),
-            name,
-            description,
-            imageUri: '',
-            tag: getLocalizedText('自定义', 'Custom'),
-            progress: 0.8,
-            createdAt: new Date().toISOString(),
-            instruction,
-          };
-          const ok = await PersonaManager.addPersona(newPersona as any);
-          if (ok) {
-            setMessages(prev => [
-              ...prev,
-              {
-                id: (Date.now() + 1).toString(),
-                text: getLocalizedText('已保存为Persona', 'Saved as Persona'),
-                isUser: false,
-                type: 'text',
-              },
-            ]);
-            Alert.alert(getLocalizedText('成功', 'Success'), getLocalizedText('Persona 已保存', 'Persona saved'));
-          } else {
-            Alert.alert(getLocalizedText('错误', 'Error'), getLocalizedText('保存Persona失败', 'Failed to save Persona'));
-          }
+
+          // 导航到CreatePersonaScreen，传递指令历史
+          navigation.navigate('CreatePersona', {
+            instructionHistory,
+            currentSessionId,
+            defaultName: name,
+            defaultDescription: description,
+          });
         } catch (e: any) {
           Alert.alert(getLocalizedText('错误', 'Error'), e.message || getLocalizedText('保存Persona失败', 'Failed to save Persona'));
         }
@@ -629,6 +885,7 @@ const EditMediaScreen: React.FC<Props> = ({ route, navigation }) => {
             <PersonaButton />
             <ExportButton />
           </View>
+
           <ImageBackground
             source={require('../Images/EditMediaScreen/show_video.png')}
             style={styles.videoFrame}
@@ -695,17 +952,15 @@ const styles = StyleSheet.create({
   },
   innerContainer: {
     flex: 1,
-    paddingTop: 4,
+    paddingTop: 0,
   },
   videoContainer: {
     width: width,
-    height: width * 0.6,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
   videoFrame: {
-    marginTop: -90,
     width: width,
     height: width * 9 / 16,
     justifyContent: 'center',
@@ -716,11 +971,12 @@ const styles = StyleSheet.create({
     height: '85%',
   },
   chatContainer: {
-    marginTop: 12,
+    marginTop: -10,
     flex: 1,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     overflow: 'hidden',
+    paddingBottom: 20, // 添加底部内边距，避免被输入框挡住
   },
   processingOverlay: {
     position: 'absolute',
@@ -739,13 +995,15 @@ const styles = StyleSheet.create({
   },
   topToolbar: {
     position: 'absolute',
-    top: -150,
+    top: -50,
     width: width,
     paddingHorizontal: 16,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 12,
+    marginTop: 8,
+    marginBottom: 16,
     zIndex: 2,
   },
   toolbarButton: {
@@ -770,7 +1028,7 @@ const styles = StyleSheet.create({
     height: getRelativeSize(44),
     paddingHorizontal: 0,
     marginTop: 0,
-    marginBottom: 0,
+    marginBottom: 8,
     backgroundColor: 'transparent',
   },
   backButton: {

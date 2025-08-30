@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,16 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useLanguage } from './context/LanguageContext';
-import { builtInPresets, buildInstructionFromPreset } from './utils/personaPresets';
+// import { builtInPresets, buildInstructionFromPreset } from './utils/personaPresets';
+import { PersonaManager, Persona } from './utils/personaManager';
 
 type RouteParams = {
   onApply?: (instruction: string) => void;
+  onApplyStepByStep?: (instructions: Array<{ instruction: string, action: string }>) => void;
 };
 
 const SelectPersonaScreen: React.FC = () => {
@@ -22,9 +25,28 @@ const SelectPersonaScreen: React.FC = () => {
   const { currentLanguage } = useLanguage();
   const params = (route.params || {}) as RouteParams;
 
+  // 新增：用户创建的Persona状态
+  const [userPersonas, setUserPersonas] = useState<Persona[]>([]);
+
   const getLocalizedText = (zhText: string, enText: string) =>
     currentLanguage === 'zh' ? zhText : enText;
 
+  // 新增：加载用户创建的Persona
+  useEffect(() => {
+    const loadUserPersonas = async () => {
+      try {
+        const personas = await PersonaManager.getAllPersonas();
+        setUserPersonas(personas);
+      } catch (error) {
+        console.error('Error loading user personas:', error);
+      }
+    };
+
+    loadUserPersonas();
+  }, []);
+
+  // 内置Persona应用函数 - 暂时注释掉
+  /*
   const handleApply = async (presetId: string) => {
     const preset = builtInPresets.find(p => p.id === presetId);
     if (!preset) return;
@@ -33,6 +55,55 @@ const SelectPersonaScreen: React.FC = () => {
       params.onApply(instruction);
     }
     navigation.goBack();
+  };
+  */
+
+  // 新增：处理用户Persona应用 - 支持逐步执行
+  const handleApplyUserPersona = async (persona: Persona) => {
+    if (!persona.instructionHistory || persona.instructionHistory.length === 0) {
+      // 如果没有指令历史，使用描述作为指令
+      if (typeof params.onApply === 'function') {
+        params.onApply(persona.description);
+      }
+      navigation.goBack();
+      return;
+    }
+
+    // 如果有指令历史，询问用户是否要逐步执行
+    Alert.alert(
+      getLocalizedText('选择执行方式', 'Select Execution Method'),
+      getLocalizedText(
+        `发现 ${persona.instructionHistory.length} 条指令历史，请选择执行方式：`,
+        `Found ${persona.instructionHistory.length} instruction history, please select execution method:`
+      ),
+      [
+        {
+          text: getLocalizedText('取消', 'Cancel'),
+          style: 'cancel',
+        },
+        {
+          text: getLocalizedText('合并执行', 'Execute Combined'),
+          onPress: () => {
+            // 合并所有指令
+            const instructions = persona.instructionHistory!.map(record => record.instruction).join('; ');
+            if (typeof params.onApply === 'function') {
+              params.onApply(instructions);
+            }
+            navigation.goBack();
+          },
+        },
+        {
+          text: getLocalizedText('逐步执行', 'Execute Step by Step'),
+          onPress: () => {
+            // 直接调用onApplyStepByStep回调，传递指令历史
+            if (typeof params.onApplyStepByStep === 'function') {
+              params.onApplyStepByStep(persona.instructionHistory!);
+            }
+            navigation.goBack();
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -47,7 +118,11 @@ const SelectPersonaScreen: React.FC = () => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{getLocalizedText('选择Persona', 'Select Persona')}</Text>
       </View>
+
       <ScrollView contentContainerStyle={styles.content}>
+        {/* 内置Persona - 暂时注释掉 */}
+        {/*
+        <Text style={styles.sectionTitle}>{getLocalizedText('内置Persona', 'Built-in Personas')}</Text>
         {builtInPresets.map(preset => (
           <ImageBackground
             key={preset.id}
@@ -72,6 +147,48 @@ const SelectPersonaScreen: React.FC = () => {
             </View>
           </ImageBackground>
         ))}
+        */}
+
+        {/* 用户创建的Persona */}
+        {userPersonas.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>{getLocalizedText('我的Persona', 'My Personas')}</Text>
+            {userPersonas.map(persona => (
+              <ImageBackground
+                key={persona.id}
+                source={require('../Images/Community/text_background.png')}
+                style={styles.card}
+                resizeMode="stretch"
+              >
+                <View style={styles.cardInner}>
+                  <View style={styles.left}>
+                    <Image
+                      source={persona.imageUri && persona.imageUri !== 'default_persona_image'
+                        ? { uri: persona.imageUri }
+                        : require('../Images/HomePage/user.png')}
+                      style={styles.icon}
+                    />
+                  </View>
+                  <View style={styles.middle}>
+                    <Text style={styles.name}>{persona.name}</Text>
+                    <Text style={styles.tag}>{persona.tag}</Text>
+                    <Text style={styles.desc}>{persona.description}</Text>
+                    {persona.instructionHistory && persona.instructionHistory.length > 0 && (
+                      <Text style={styles.instructionCount}>
+                        {getLocalizedText('指令数量:', 'Instructions:')} {persona.instructionHistory.length}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.right}>
+                    <TouchableOpacity style={styles.applyBtn} onPress={() => handleApplyUserPersona(persona)}>
+                      <Text style={styles.applyBtnText}>{getLocalizedText('应用', 'Apply')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </ImageBackground>
+            ))}
+          </>
+        )}
       </ScrollView>
     </ImageBackground>
   );
@@ -109,6 +226,18 @@ const styles = StyleSheet.create({
   right: { width: 90, justifyContent: 'center', alignItems: 'center' },
   applyBtn: { backgroundColor: '#6A5ACD', borderRadius: 18, paddingVertical: 8, paddingHorizontal: 16 },
   applyBtnText: { color: 'white', fontSize: 14, fontWeight: 'bold' },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  instructionCount: {
+    color: 'white',
+    fontSize: 12,
+    marginTop: 8,
+  },
 });
 
 export default SelectPersonaScreen;

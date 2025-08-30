@@ -8,7 +8,8 @@ import tempfile
 import retrying
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, Tuple, Protocol
-from nlp_parser import OPERATIONS, EDITOR_TYPES, process_instruction, DialogueManager
+# from nlp_parser import OPERATIONS, EDITOR_TYPES, process_instruction, DialogueManager
+from qwen_nlp_parser import OPERATIONS, EDITOR_TYPES, process_instruction, DialogueManager
 from moviepy_editor import MoviePyVideoEditor, AbstractVideoEditor
 from ffmpeg_editor import FFmpegVideoEditor
 
@@ -57,10 +58,36 @@ class DialogueVideoEditor:
             input_video: 输入视频文件路径
             editor_type: 编辑器类型，默认使用 MoviePy
         """
-        self.editor = VideoEditorFactory.create_editor(editor_type, input_video)
+        self.input_video = input_video
+        self.default_editor_type = editor_type
+        self.current_editor = None
+        self.current_editor_type = None
         self.dialogue_manager = DialogueManager()
         self.dialogue_manager.set_current_video(input_video)
         self.history = []
+        
+    def _get_or_create_editor(self, editor_type: str):
+        """
+        根据编辑器类型获取或创建编辑器实例
+        
+        Args:
+            editor_type: 编辑器类型 ('moviepy', 'ffmpeg', 'opencv')
+            
+        Returns:
+            AbstractVideoEditor: 编辑器实例
+        """
+        # 如果当前编辑器类型不匹配，需要重新创建
+        if self.current_editor_type != editor_type:
+            # 关闭当前编辑器
+            if self.current_editor:
+                self.current_editor.close()
+            
+            # 创建新的编辑器
+            self.current_editor = VideoEditorFactory.create_editor(editor_type, self.input_video)
+            self.current_editor_type = editor_type
+            logger.info(f"切换到 {editor_type} 编辑器")
+            
+        return self.current_editor
         
     def process_command(self, user_input: str) -> Dict[str, Any]:
         """
@@ -106,7 +133,7 @@ class DialogueVideoEditor:
             # 执行编辑操作
             action_str = result["action"]
             action_parts = action_str.strip().split()
-            editor_type = 'moviepy'  # 默认使用 MoviePy
+            editor_type = self.default_editor_type  # 默认使用初始化时的编辑器类型
             
             # 解析编辑器类型
             for part in action_parts:
@@ -123,6 +150,9 @@ class DialogueVideoEditor:
                     "action": action_str
                 }
                 
+            # 获取或创建合适的编辑器
+            editor = self._get_or_create_editor(editor_type)
+            
             # 检查编辑器状态
             if not self.is_editor_ready():
                 return {
@@ -133,7 +163,7 @@ class DialogueVideoEditor:
                 
             # 执行操作并检查结果
             try:
-                success = self.editor.execute_action(action_str, OPERATIONS)
+                success = editor.execute_action(action_str, OPERATIONS)
                 if success:
                     return {
                         "response": result["response"],
@@ -168,8 +198,9 @@ class DialogueVideoEditor:
         Args:
             output_path: 输出文件路径
         """
-        self.editor.output_path = output_path
-        self.editor.save()
+        if self.current_editor:
+            self.current_editor.output_path = output_path
+            self.current_editor.save()
         # 注意：这里不关闭编辑器，让调用方决定何时关闭
         
     def is_operation_successful(self, result: Dict[str, Any]) -> bool:
@@ -178,14 +209,17 @@ class DialogueVideoEditor:
         
     def is_editor_ready(self) -> bool:
         """检查编辑器是否准备就绪"""
+        if not self.current_editor:
+            return False
         # 对 MoviePy：要求 video_clip 存在且非 None；对 FFmpeg：无持有 clip 的概念，视为就绪
-        if hasattr(self.editor, 'video_clip'):
-            return self.editor.video_clip is not None
+        if hasattr(self.current_editor, 'video_clip'):
+            return self.current_editor.video_clip is not None
         return True
         
     def close(self):
         """关闭编辑器并清理资源"""
-        self.editor.close()
+        if self.current_editor:
+            self.current_editor.close()
         self.dialogue_manager.clear_history()
 
 def process_video_edit(user_input: str, input_video: str, editor_type: str = 'moviepy') -> Tuple[str, Optional[AbstractVideoEditor]]:
@@ -223,12 +257,15 @@ def process_video_edit(user_input: str, input_video: str, editor_type: str = 'mo
 
 if __name__ == "__main__":
     input_video = "D:\\test1\\video001.mp4"
-    # 使用 ffmpeg 编辑器
-    editor = DialogueVideoEditor(input_video, editor_type='ffmpeg')
+    
+    # 动态选择编辑器，默认使用 moviepy
+    editor = DialogueVideoEditor(input_video, editor_type='moviepy')
 
-    # 仅测试：添加字幕（底部居中，3s 出现，持续 5s）
+    # 测试命令
     commands = [
-        "在视频中添加字幕'测试字幕'，字体大小为48，持续时间为5秒，位置在底部中央，开始时间为3秒 editor=ffmpeg"
+        "增大视频对比度",
+        "在视频第一秒添加一个转场",
+        "第一秒变为黑白",
     ]
 
     for i, cmd in enumerate(commands):
@@ -238,9 +275,13 @@ if __name__ == "__main__":
         print(f"执行成功: {result['success']}")
 
         if result['success']:
-            if i == len(commands) - 1:
-                editor.save_final("Output\\ffmpeg_add_text_from_dialogue.mp4")
-                print("视频已保存")
+            # 确保输出目录存在
+            output_dir = "Output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                
+            editor.save_final(os.path.join(output_dir, "qwen_video_edit.mp4"))
+            print("视频已保存")
         else:
             print("操作失败，未保存视频")
             break

@@ -1,0 +1,48 @@
+{
+  "user_id": "test_user",
+  "persona_name": "测试剪辑师",
+  "style_vector": {
+    "language_rhythm": {
+      "fast_paced": 0.5,
+      "slow_paced": 0.5,
+      "dynamic": 0.5,
+      "consistent": 0.5
+    },
+    "shot_selection": {
+      "close_up_frequency": 0.5,
+      "wide_shot_frequency": 0.5,
+      "transition_smoothness": 0.5,
+      "cut_frequency": 0.5
+    },
+    "content_structure": {
+      "narrative_style": 0.5,
+      "emotional_intensity": 0.5,
+      "visual_complexity": 0.5,
+      "audio_emphasis": 0.5
+    },
+    "technical_params": {
+      "brightness": 0.5,
+      "contrast": 0.5,
+      "saturation": 0.5,
+      "sharpness": 0.5
+    },
+    "operation_weights": {
+      "trim": 1.0,
+      "speed": 1.0,
+      "add_transition": 1.0,
+      "add_text": 1.0,
+      "add_background_music": 1.0,
+      "concatenate": 1.0,
+      "color_correction": 1.0
+    }
+  },
+  "creation_date": "2025-08-20T22:40:17.084646",
+  "last_updated": "2025-08-20T22:40:17.084646",
+  "editing_history": [],
+  "preference_tags": [],
+  "training_data": {
+    "videos_analyzed": [],
+    "user_feedback": [],
+    "generated_clips": []
+  }
+}

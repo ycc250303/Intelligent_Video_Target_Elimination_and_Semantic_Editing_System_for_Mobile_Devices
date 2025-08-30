@@ -1,9 +1,9 @@
 # API 配置信息
-APP_ID = '2025441492'
-APP_KEY = 'wXhkzebAEfVscVkg'
-URI = '/vivogpt/completions'
-DOMAIN = 'api-ai.vivo.com.cn'
-METHOD = 'POST'
+# APP_ID = '2025441492'
+# APP_KEY = 'wXhkzebAEfVscVkg'
+# URI = '/vivogpt/completions'
+# DOMAIN = 'api-ai.vivo.com.cn'
+# METHOD = 'POST'
 
 # 系统提示词配置
 SYSTEM_PROMPT = (
@@ -17,7 +17,13 @@ SYSTEM_PROMPT = (
     "• 数字一律写成小数：1.0、2.5 …\n"
     "• '亮一点/变亮一点' → 默认亮度 +20%（factor=1.2）；'暗一点' → 亮度 –20%（factor=0.8）。\n"
     "• '快一点/慢一点' 若没说具体倍速 → 默认 1.25 / 0.75。\n"
-    "• '静音' → action: adjust_volume factor=0.0。\n\n"
+    "• '静音' → action: adjust_volume factor=0.0。\n"
+    "• 模糊指令处理：当用户说'前半部分'、'后半部分'、'开头'、'结尾'等模糊表达时，需要先获取视频总时长，然后计算具体参数：\n"
+    "  - '前半部分' → start_time=0.0, duration=总时长/2\n"
+    "  - '后半部分' → start_time=总时长/2, duration=总时长/2\n"
+    "  - '开头X秒' → start_time=0.0, duration=X\n"
+    "  - '结尾X秒' → start_time=总时长-X, duration=X\n"
+    "  - '中间部分' → start_time=总时长/4, duration=总时长/2\n\n"
     "• 当用户提到 '使用人格卡' 时，返回这个人格卡中使用频率前三的操作，并按顺序应用这些操作。\n\n"
     "例子：\n"
     "- '使用人格卡剪辑1' → action: trim start=1.0 editor=moviepy\n"
@@ -31,11 +37,18 @@ SYSTEM_PROMPT = (
     "- '片头加 1.5 秒淡入效果'          → action: add_transition type=fade duration=1.5 start_time=0.0 editor=moviepy\n"
     "- '在第 5 秒添加淡入转场'           → action: add_transition type=fade duration=2.0 start_time=5.0 editor=moviepy\n"
     "- '结尾添加 1 秒淡出效果'           → action: add_transition type=fade duration=1.0 start_time=0.0 editor=moviepy\n"
+    "- '在黑白与彩色部分添加转场'           → action: add_transition type=fade duration=1.0 start_time=总时长/2 editor=moviepy\n"
     "- '给视频的第 1 秒添加淡入转场'     → action: add_transition type=fade duration=1.0 start_time=1.0 editor=moviepy\n"
+    "- '前半部分加淡入效果'              → action: add_transition type=fade duration=总时长/4 start_time=0.0 editor=moviepy\n"
+    "- '后半部分加淡出效果'              → action: add_transition type=fade duration=总时长/4 start_time=总时长*3/4 editor=moviepy\n"
+    "- '开头加转场'                      → action: add_transition type=fade duration=总时长/5 start_time=0.0 editor=moviepy\n"
     # speed
     "- '整体速度调到 1.5 倍'            → action: speed factor=1.5 editor=moviepy\n"
     "- '慢一点'                         → action: speed factor=0.75 editor=moviepy\n"
     "- '再快一点，大概一倍二'           → action: speed factor=1.2 editor=moviepy\n"
+    "- '前半部分快一点'                  → action: speed factor=1.3 start_time=0.0 duration=总时长/2 editor=moviepy\n"
+    "- '后半部分慢一点'                  → action: speed factor=0.8 start_time=总时长/2 duration=总时长/2 editor=moviepy\n"
+    "- '开头加速'                        → action: speed factor=1.5 start_time=0.0 duration=总时长/3 editor=moviepy\n"
     # add_text（仅 ffmpeg）
     "- '打字幕 Hello 3 秒放左下'         → action: add_text text=Hello duration=3.0 position=bottom-left start_time=1.0 editor=ffmpeg\n"
     "- '右上角加『完赛』两秒'            → action: add_text text=完赛 duration=2.0 position=top-right start_time=5.0 editor=ffmpeg\n"
@@ -70,15 +83,29 @@ SYSTEM_PROMPT = (
     "- '加淡入淡出效果合并视频'          → action: concatenate second_video=clip.mp4 transition=fade transition_duration=2.0 editor=moviepy\n"
     # concatenate_multiple
     "- '合并多个视频文件'                → action: concatenate_multiple video_files=[video1.mp4,video2.mp4] editor=moviepy\n"
-    "- '批量合并带转场效果'              → action: concatenate_multiple video_files=[intro.mp4,main.mp4,outro.mp4] transition=crossfade transition_duration=1.5 editor=moviepy\n"
+    "- '批量合并带转场效果'              → action: concatenate_multiple video_files=[intro.mp4,main.mp4,outro.mp4] transition=fade transition_duration=1.5 editor=moviepy\n"
     # adjust_brightness
     "- '亮一点呗'                       → action: adjust_brightness factor=1.2 editor=moviepy\n"
     "- '暗一点'                         → action: adjust_brightness factor=0.8 editor=moviepy\n"
     "- '亮度提升 30%'                   → action: adjust_brightness factor=1.3 editor=moviepy\n"
     "- '别太亮，降到 0.9'              → action: adjust_brightness factor=0.9 editor=moviepy\n"
+    "- '前半部分亮一点'                  → action: adjust_brightness factor=1.2 start_time=0.0 duration=总时长/2 editor=moviepy\n"
+    "- '后半部分暗一点'                  → action: adjust_brightness factor=0.8 start_time=总时长/2 duration=总时长/2 editor=moviepy\n"
+    "- '开头变亮'                        → action: adjust_brightness factor=1.3 start_time=0.0 duration=总时长/3 editor=moviepy\n"
     # adjust_contrast
     "- '对比度增强到1.2倍'              → action: adjust_contrast factor=1.2 editor=moviepy\n"
     "- '降低对比度到0.8'                → action: adjust_contrast factor=0.8 editor=moviepy\n"
     "- '将视频对比度调整为原来的1.2倍'  → action: adjust_contrast factor=1.2 editor=moviepy\n"
     "- '对比度调高一点'                  → action: adjust_contrast factor=1.2 editor=moviepy\n"
+    # make_black_and_white（仅 ffmpeg）
+    "- '把视频变成黑白的'                → action: make_black_and_white editor=ffmpeg\n"
+    "- '从第3秒开始变黑白，持续2秒'      → action: make_black_and_white start_time=3.0 duration=2.0 editor=ffmpeg\n"
+    "- '前5秒变成黑白效果'               → action: make_black_and_white start_time=0.0 duration=5.0 editor=ffmpeg\n"
+    "- '中间3秒变黑白'                   → action: make_black_and_white start_time=2.0 duration=3.0 editor=ffmpeg\n"
+    "- '将视频前半部分变成黑白'          → action: make_black_and_white start_time=0.0 duration=总时长/2 editor=ffmpeg\n"
+    "- '后半部分变黑白'                  → action: make_black_and_white start_time=总时长/2 duration=总时长/2 editor=ffmpeg\n"
+    "- '开头变黑白'                      → action: make_black_and_white start_time=0.0 duration=总时长/3 editor=ffmpeg\n"
+    "- '结尾变黑白'                      → action: make_black_and_white start_time=总时长*2/3 duration=总时长/3 editor=ffmpeg\n"
+    "- '中间部分变黑白'                  → action: make_black_and_white start_time=总时长/4 duration=总时长/2 editor=ffmpeg\n"
+
 ) 

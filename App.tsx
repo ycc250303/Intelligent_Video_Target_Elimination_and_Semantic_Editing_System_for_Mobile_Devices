@@ -7,19 +7,19 @@ import { RouteProp } from '@react-navigation/native';
 import { Platform, Text, View, ImageBackground, StyleSheet, PermissionsAndroid, Alert, Linking, Animated, TouchableOpacity, StatusBar, UIManager } from 'react-native';
 import { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import MediaPickerScreen from './App/MediaPickerScreen';
-import EditMediaScreen from './App/EditMediaScreen';
-import SettingsScreen from './App/SettingsScreen';
-import HomeScreen from './App/HomeScreen';
-import CommunityScreen from './App/CommunityScreen';
-import PersonaScreen from './App/PersonaScreen';
-import CreatePersonaScreen from './App/CreatePersonaScreen';
-import StyleCardDetailScreen from './App/StyleCardDetailScreen';
-import SelectPersonaScreen from './App/SelectPersonaScreen';
-import { requestStoragePermissions } from './App/utils/permissionManager';
-import { LanguageProvider, useLanguage } from './App/context/LanguageContext';
-import { UserProvider } from './App/context/UserContext';
-import { PersonaProvider } from './App/context/PersonaContext';
+import MediaPickerScreen from './Src/App/MediaPickerScreen';
+import EditMediaScreen from './Src/App/EditMediaScreen';
+import SettingsScreen from './Src/App/SettingsScreen';
+import HomeScreen from './Src/App/HomeScreen';
+import CommunityScreen from './Src/App/CommunityScreen';
+import PersonaScreen from './Src/App/PersonaScreen';
+import CreatePersonaScreen from './Src/App/CreatePersonaScreen';
+import StyleCardDetailScreen from './Src/App/StyleCardDetailScreen';
+import SelectPersonaScreen from './Src/App/SelectPersonaScreen';
+import { requestStoragePermissions } from './Src/App/utils/permissionManager';
+import { LanguageProvider, useLanguage } from './Src/App/context/LanguageContext';
+import { UserProvider } from './Src/App/context/UserContext';
+import { PersonaProvider } from './Src/App/context/PersonaContext';
 
 // Custom Tab Bar Icons
 const HomeTabIcon = ({ focused, color }: { focused: boolean; color: string }) => {
@@ -107,8 +107,8 @@ const CustomTabBar: React.FC<MaterialTopTabBarProps> = ({ state, descriptors, na
 
   return (
     <ImageBackground
-      source={require('./Images/bottom-tabs.png')}
-      style={[styles.tabBarBackground, { 
+      source={require('./Src/Images/bottom-tabs.png')}
+      style={[styles.tabBarBackground, {
         paddingBottom: insets.bottom,
         height: 100 + insets.bottom,
       }]}
@@ -145,18 +145,18 @@ const CustomTabBar: React.FC<MaterialTopTabBarProps> = ({ state, descriptors, na
             if (options.tabBarLabel !== undefined) {
               return typeof options.tabBarLabel === 'string'
                 ? getLocalizedText(
-                    options.tabBarLabel === '主页' ? '主页' : options.tabBarLabel === '剪辑' ? '剪辑' : options.tabBarLabel === '设置' ? '设置' : options.tabBarLabel === '社区' ? '社区' : 'Persona',
-                    options.tabBarLabel === 'Home' ? 'Home' : options.tabBarLabel === 'Edit' ? 'Edit' : options.tabBarLabel === 'Settings' ? 'Settings' : options.tabBarLabel === 'Community' ? 'Community' : 'Persona'
-                  )
+                  options.tabBarLabel === '主页' ? '主页' : options.tabBarLabel === '剪辑' ? '剪辑' : options.tabBarLabel === '设置' ? '设置' : options.tabBarLabel === '社区' ? '社区' : 'Persona',
+                  options.tabBarLabel === 'Home' ? 'Home' : options.tabBarLabel === 'Edit' ? 'Edit' : options.tabBarLabel === 'Settings' ? 'Settings' : options.tabBarLabel === 'Community' ? 'Community' : 'Persona'
+                )
                 : typeof options.tabBarLabel === 'function'
-                ? options.tabBarLabel({ focused: isFocused, color: isFocused ? '#007AFF' : 'gray', children: '' })
-                : String(options.tabBarLabel);
+                  ? options.tabBarLabel({ focused: isFocused, color: isFocused ? '#007AFF' : 'gray', children: '' })
+                  : String(options.tabBarLabel);
             } else if (options.title !== undefined) {
               return typeof options.title === 'string'
                 ? getLocalizedText(
-                    options.title === '主页' ? '主页' : options.title === '剪辑' ? '剪辑' : options.title === '设置' ? '设置' : options.title === '社区' ? '社区' : 'Persnoa',
-                    options.title === 'Home' ? 'Home' : options.title === 'Edit' ? 'Edit' : options.title === 'Settings' ? 'Settings' : options.title === 'Community' ? 'Community' : 'Persona'
-                  )
+                  options.title === '主页' ? '主页' : options.title === '剪辑' ? '剪辑' : options.title === '设置' ? '设置' : options.title === '社区' ? '社区' : 'Persnoa',
+                  options.title === 'Home' ? 'Home' : options.title === 'Edit' ? 'Edit' : options.title === 'Settings' ? 'Settings' : options.title === 'Community' ? 'Community' : 'Persona'
+                )
                 : String(options.title);
             } else {
               return getLocalizedText(
@@ -418,7 +418,7 @@ const App: React.FC = () => {
         console.warn('存储权限未获得，部分功能可能无法正常使用');
       }
     };
-    
+
     // 配置系统UI - 隐藏系统导航栏
     const configureSystemUI = () => {
       if (Platform.OS === 'android') {
@@ -428,7 +428,7 @@ const App: React.FC = () => {
         }
       }
     };
-    
+
     checkPermissions();
     configureSystemUI();
   }, []);
@@ -443,7 +443,7 @@ const App: React.FC = () => {
       />
       <View style={styles.container}>
         <ImageBackground
-          source={require('./Images/background.png')}
+          source={require('./Src/Images/background.png')}
           style={styles.backgroundImage}
           resizeMode="cover"
         >

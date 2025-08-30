@@ -9,6 +9,16 @@ export interface Persona {
   progress: number;
   createdAt: string;
   instruction?: string;
+  // 新增：指令历史记录
+  instructionHistory?: Array<{
+    id: string;
+    instruction: string;
+    action: string;
+    timestamp: number;
+    videoPath: string;
+  }>;
+  // 新增：会话ID
+  sessionId?: string;
 }
 
 const PERSONA_STORAGE_KEY = 'user_personas';
@@ -58,7 +68,7 @@ export class PersonaManager {
   static async updatePersona(updatedPersona: Persona): Promise<boolean> {
     try {
       const existingPersonas = await this.getAllPersonas();
-      const updatedPersonas = existingPersonas.map(p => 
+      const updatedPersonas = existingPersonas.map(p =>
         p.id === updatedPersona.id ? updatedPersona : p
       );
       await AsyncStorage.setItem(PERSONA_STORAGE_KEY, JSON.stringify(updatedPersonas));

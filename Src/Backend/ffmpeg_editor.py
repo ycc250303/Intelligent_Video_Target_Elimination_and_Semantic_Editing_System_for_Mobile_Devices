@@ -54,12 +54,82 @@ class FFmpegVideoEditor(AbstractVideoEditor):
         raise NotImplementedError("FFmpegVideoEditor.trim 尚未实现")
 
     def add_transition(self, type: str = "fade", duration: float = 1.0, start_time: float = 0.0):
-        raise NotImplementedError("FFmpegVideoEditor.add_transition 尚未实现")
+        """
+        添加转场效果，使用FFmpeg的fade过滤器实现淡入淡出。
+
+        Args:
+            type: 转场类型，目前支持 'fade'
+            duration: 转场持续时间（秒）
+            start_time: 转场开始时间（秒）
+        """
+        if type != "fade":
+            raise ValueError(f"FFmpeg编辑器目前只支持 'fade' 类型的转场，收到: {type}")
+        
+        if duration <= 0:
+            raise ValueError("转场持续时间必须大于 0")
+        if start_time < 0:
+            raise ValueError("转场开始时间不能为负")
+
+        total = self._get_video_duration()
+        if start_time >= total:
+            raise ValueError(f"转场开始时间 {start_time}s 不能超过或等于视频总时长 {total:.3f}s")
+        if start_time + duration > total:
+            raise ValueError(
+                f"转场结束时间 {start_time + duration:.3f}s 超过视频总时长 {total:.3f}s，请缩短持续时间或调整开始时间"
+            )
+
+        # 使用fade过滤器实现淡入淡出效果
+        # 淡入：从start_time开始，持续duration秒
+        fade_in = f"fade=t=in:st={start_time}:d={duration}"
+        
+        # 淡出：从start_time开始，持续duration秒
+        fade_out = f"fade=t=out:st={start_time}:d={duration}"
+        
+        # 添加淡入淡出效果
+        self.filters.append(fade_in)
+        self.filters.append(fade_out)
+        
+        logger.info(
+            f"已添加转场效果（ffmpeg）：type={type}, start={start_time}s, duration={duration}s"
+        )
 
     def adjust_speed(self, factor: float = 1.0):
         raise NotImplementedError("FFmpegVideoEditor.adjust_speed 尚未实现")
 
-    def add_text(self, text: str, fontsize: int = 24, duration: float = 5.0, position: str = "center", start_time: float = 0.0):
+    def make_black_and_white(self, start_time: float = 0.0, duration: float = 3.0):
+        """
+        将视频变为黑白效果。
+
+        Args:
+            start_time: 开始时间（秒），默认为0
+            duration: 持续时间（秒），默认为1秒
+        """
+        if duration <= 0:
+            raise ValueError("持续时间必须大于 0")
+        if start_time < 0:
+            raise ValueError("开始时间不能为负")
+
+        total = self._get_video_duration()
+        if start_time >= total:
+            raise ValueError(f"开始时间 {start_time}s 不能超过或等于视频总时长 {total:.3f}s")
+        if start_time + duration > total:
+            raise ValueError(
+                f"结束时间 {start_time + duration:.3f}s 超过视频总时长 {total:.3f}s，请缩短持续时间或调整开始时间"
+            )
+
+        # 使用hue过滤器将饱和度设为0，实现黑白效果
+        # enable参数控制应用效果的时间段
+        enable = f"between(t,{start_time},{start_time + duration})"
+        
+        # 创建hue过滤器，将饱和度设为0
+        hue_filter = f"hue=s=0:enable='{enable}'"
+        
+        self.filters.append(hue_filter)
+        logger.info(
+            f"已添加黑白效果（ffmpeg）：start={start_time}s, duration={duration}s"
+        )
+
+    def add_text(self, text: str, fontsize: int = 72, duration: float = 5.0, position: str = "center", start_time: float = 0.0):
         """
         添加硬字幕（烧录），使用 drawtext 过滤器。
 
@@ -85,15 +155,54 @@ class FFmpegVideoEditor(AbstractVideoEditor):
                 f"字幕结束时间 {start_time + duration:.3f}s 超过视频总时长 {total:.3f}s，请缩短持续时间或调整开始时间"
             )
 
-        # Windows 字体路径（可根据需要调整）。优先使用微软雅黑，兼容中文。
-        default_font = r"C:\\Windows\\Fonts\\msyh.ttc"
-        fontfile = default_font if os.path.exists(default_font) else None
+        # 跨平台字体检测，优先使用电脑端最兼容的字体
+        font_candidates = []
+        
+        # Windows 字体路径（电脑端优先）
+        if os.name == 'nt':  # Windows 系统
+            font_candidates.extend([
+                r"C:\Windows\Fonts\msyh.ttc",      # 微软雅黑（最兼容）
+                r"C:\Windows\Fonts\msyhbd.ttc",    # 微软雅黑粗体
+                r"C:\Windows\Fonts\simhei.ttf",    # 黑体
+                r"C:\Windows\Fonts\simsun.ttc",    # 宋体
+                r"C:\Windows\Fonts\simkai.ttf",    # 楷体
+                r"C:\Windows\Fonts\simfang.ttf",   # 仿宋
+            ])
+        else:  # Linux/Android/iOS 系统
+            font_candidates.extend([
+                "/system/fonts/DroidSansFallback.ttf",      # Android 系统字体
+                "/system/fonts/NotoSansCJK-Regular.ttc",    # Android Noto 字体
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux 字体
+                "/System/Library/Fonts/PingFang.ttc",       # iOS 字体
+                "/System/Library/Fonts/STHeiti Light.ttc",  # iOS 字体
+            ])
+        
+        # 添加通用字体路径（作为备选）
+        font_candidates.extend([
+            "arial.ttf",      # 通用字体
+            "helvetica.ttf",  # 通用字体
+            "sans-serif",     # 系统默认字体
+        ])
+        
+        fontfile = None
+        for font_path in font_candidates:
+            if os.path.exists(font_path):
+                fontfile = font_path
+                logger.info(f"找到可用字体: {font_path}")
+                break
+        
+        if not fontfile:
+            logger.warning("未找到可用的字体文件，将使用系统默认字体")
+            # 尝试使用系统默认字体，不指定具体路径
+            fontfile = None
 
         # 统一用正斜杠，避免 ffmpeg 在 Windows 下解析反斜杠转义问题
         if fontfile:
             fontfile_ff = fontfile.replace("\\", "/")
+            logger.info(f"使用字体文件: {fontfile_ff}，确保在电脑端生成兼容的视频")
         else:
             fontfile_ff = None
+            logger.info("使用系统默认字体，可能在不同设备上显示效果不同")
 
         # 转义文本中的特殊字符（: ' \ 等）。用 \: 与 \' 规避解析问题
         safe_text = (
@@ -108,23 +217,45 @@ class FFmpegVideoEditor(AbstractVideoEditor):
 
         enable = f"between(t,{start_time},{start_time + duration})"
 
-        drawtext_parts = [
+        # 简化参数组合，避免复杂的参数导致FFmpeg解析失败
+        drawtext_parts = []
+        
+        # 添加字体文件设置（如果可用）
+        if fontfile_ff:
+            drawtext_parts.insert(0, f"fontfile='{fontfile_ff}'")
+            logger.info(f"使用指定字体: {fontfile_ff}")
+        else:
+            # 不指定字体文件，让系统使用默认字体
+            logger.info("使用系统默认字体")
+        
+        # 基本参数
+        drawtext_parts.extend([
             f"text='{safe_text}'",
             f"fontsize={fontsize}",
             "fontcolor=white",
-            "borderw=2:bordercolor=black@0.7",
             f"x={x_expr}",
             f"y={y_expr}",
-            f"enable='{enable}'",
-        ]
-        if fontfile_ff:
-            drawtext_parts.insert(0, f"fontfile='{fontfile_ff}'")
+            f"enable='{enable}'"
+        ])
+        
+        # 添加边框和背景，提高可读性
+        drawtext_parts.extend([
+            "borderw=2",
+            "bordercolor=black@0.8",
+            "box=1",
+            "boxcolor=black@0.5",
+            "boxborderw=2"
+        ])
 
         drawtext = "drawtext=" + ":".join(drawtext_parts)
         self.filters.append(drawtext)
+        
+        # 记录详细的字体信息
+        font_info = f"字体={fontfile_ff if fontfile_ff else '系统默认'}"
         logger.info(
-            f"已添加字幕（ffmpeg）：text='{text}', start={start_time}s, duration={duration}s, fontsize={fontsize}"
+            f"已添加字幕（ffmpeg，电脑端处理）：text='{text}', start={start_time}s, duration={duration}s, fontsize={fontsize}, {font_info}"
         )
+        logger.info("字幕在电脑端生成，使用电脑端字体，确保在手机上播放时字体显示正常")
 
     def set_resolution(
         self,
@@ -324,6 +455,45 @@ class FFmpegVideoEditor(AbstractVideoEditor):
         self.filters.clear()
         logger.info("FFmpeg 编辑器已清理状态")
 
+    def _parse_duration_expression(self, expression: str) -> float:
+        """
+        解析包含"总时长"的表达式，计算具体的时间值。
+        
+        Args:
+            expression: 包含"总时长"的表达式字符串，如"总时长/2"、"总时长*3/4"等
+            
+        Returns:
+            float: 计算后的具体时间值
+        """
+        if not isinstance(expression, str):
+            return float(expression)
+            
+        # 如果表达式不包含"总时长"，直接转换
+        if "总时长" not in expression:
+            try:
+                return float(expression)
+            except ValueError:
+                raise ValueError(f"无法解析时间表达式: {expression}")
+        
+        # 获取视频总时长
+        total_duration = self._get_video_duration()
+        
+        # 替换"总时长"为实际数值
+        expression = expression.replace("总时长", str(total_duration))
+        
+        try:
+            # 安全地计算表达式
+            # 只允许基本的数学运算：+、-、*、/、()
+            allowed_chars = set("0123456789.+-*/() ")
+            if not all(c in allowed_chars for c in expression):
+                raise ValueError(f"表达式包含不允许的字符: {expression}")
+            
+            # 使用eval计算表达式（在受控环境下）
+            result = eval(expression)
+            return float(result)
+        except Exception as e:
+            raise ValueError(f"无法计算时间表达式 '{expression}': {e}")
+
     # 可选：提供一个仅支持 add_text 的 execute_action，保持与 MoviePyVideoEditor 接口相似
     def execute_action(self, action_str: str, operations: dict) -> bool:
         if not action_str:
@@ -342,18 +512,33 @@ class FFmpegVideoEditor(AbstractVideoEditor):
                 if k != 'editor':
                     params[k] = v
 
-        if action != 'add_text':
-            raise ValueError(f"FFmpegVideoEditor 目前仅支持 add_text，收到: {action}")
+        if action == 'add_text':
+            # 解析参数，支持"总时长"表达式
+            text = params.get('text', '')
+            fontsize = int(params.get('fontsize', 24))
+            duration = self._parse_duration_expression(params.get('duration', 5.0)) if 'duration' in params else 5.0
+            position = params.get('position', 'center')  # 目前忽略，统一底部居中
+            start_time = self._parse_duration_expression(params.get('start_time', 0.0)) if 'start_time' in params else 0.0
 
-        # 解析参数
-        text = params.get('text', '')
-        fontsize = int(params.get('fontsize', 24))
-        duration = float(params.get('duration', 5.0))
-        position = params.get('position', 'center')  # 目前忽略，统一底部居中
-        start_time = float(params.get('start_time', 0.0)) if 'start_time' in params else 0.0
+            self.add_text(text=text, fontsize=fontsize, duration=duration, position=position, start_time=start_time)
+            return True
+        elif action == 'make_black_and_white':
+            # 解析参数，支持"总时长"表达式
+            start_time = self._parse_duration_expression(params.get('start_time', 0.0)) if 'start_time' in params else 0.0
+            duration = self._parse_duration_expression(params.get('duration', 1.0)) if 'duration' in params else 1.0
 
-        self.add_text(text=text, fontsize=fontsize, duration=duration, position=position, start_time=start_time)
-        return True
+            self.make_black_and_white(start_time=start_time, duration=duration)
+            return True
+        elif action == 'add_transition':
+            # 解析参数，支持"总时长"表达式
+            type_param = params.get('type', 'fade')
+            duration = self._parse_duration_expression(params.get('duration', 1.0)) if 'duration' in params else 1.0
+            start_time = self._parse_duration_expression(params.get('start_time', 0.0)) if 'start_time' in params else 0.0
+
+            self.add_transition(type=type_param, duration=duration, start_time=start_time)
+            return True
+        else:
+            raise ValueError(f"FFmpegVideoEditor 目前仅支持 add_text、make_black_and_white 和 add_transition，收到: {action}")
 
 
 if __name__ == "__main__":

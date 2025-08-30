@@ -32,7 +32,6 @@ def gen_canonical_query_string(params):
     else:
         return ''
 
-
 def gen_signature(app_secret, signing_string):
     bytes_secret = app_secret.encode('utf-8')
     hash_obj = hmac.new(bytes_secret, signing_string, hashlib.sha256)
@@ -59,6 +58,7 @@ def gen_sign_headers(app_id, app_key, method, uri, query):
                                                      signed_headers_string)
     signing_string = signing_string.encode('utf-8')
     signature = gen_signature(app_key, signing_string)
+    
     return {
         'X-AI-GATEWAY-APP-ID': app_id,
         'X-AI-GATEWAY-TIMESTAMP': timestamp,

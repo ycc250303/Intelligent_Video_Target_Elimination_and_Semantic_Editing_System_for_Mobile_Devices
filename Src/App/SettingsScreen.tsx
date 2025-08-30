@@ -443,7 +443,7 @@ const styles = StyleSheet.create({
     lineHeight: getRelativeSize(14),
   },
   accountManagementBackground: {
-    width: 430,
+    width: 340,
     height: 250, // 增加高度
     justifyContent: 'center',
     alignItems: 'center',
