@@ -17,10 +17,21 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
         scaffoldBackgroundColor: Colors.transparent, // 设置背景透明
+        textTheme: TextTheme(
+          bodyLarge: TextStyle(fontWeight: FontWeight.bold),
+          bodyMedium: TextStyle(fontWeight: FontWeight.bold),
+          bodySmall: TextStyle(fontWeight: FontWeight.bold),
+        ),
         appBarTheme: AppBarTheme(
           backgroundColor: Colors.transparent,
           elevation: 0,
           foregroundColor: Colors.white,
+          // 添加标题文字样式
+          titleTextStyle: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
           systemOverlayStyle: SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
             statusBarIconBrightness: Brightness.dark,
