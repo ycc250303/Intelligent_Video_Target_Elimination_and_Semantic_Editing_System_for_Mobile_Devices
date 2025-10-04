@@ -1,0 +1,25 @@
+<svg viewBox="0 0 764 446" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="764.000000" height="446.000000" fill="none" customFrame="#000000">
+	<defs>
+		<g id="pixso_custom_effect_3">
+			<effect x="7.000000" y="7.000000" visibility="visible" fill="rgb(54,255,23)" fill-opacity="0.278431386" effectType="dropShadow" stdDeviation="37" radius="0" />
+		</g>
+		<filter id="filter_3" width="764.000000" height="446.000000" x="0.000000" y="0.000000" filterUnits="userSpaceOnUse" customEffect="url(#pixso_custom_effect_3)" color-interpolation-filters="sRGB">
+			<feFlood flood-opacity="0" result="BackgroundImageFix" />
+			<feOffset dx="7.000000" dy="7.000000" in="SourceAlpha" />
+			<feGaussianBlur stdDeviation="12.333333" />
+			<feColorMatrix type="matrix" values="0 0 0 0 0.211765 0 0 0 0 1 0 0 0 0 0.0901961 0 0 0 0.278431 0 " />
+			<feBlend result="effect_dropShadow_1" in2="BackgroundImageFix" mode="normal" />
+			<feBlend result="shape" in="SourceGraphic" in2="effect_dropShadow_1" mode="normal" />
+		</filter>
+		<linearGradient id="paint_linear_2" x1="42.0233459" x2="699.975952" y1="52.1105347" y2="378.664459" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(120,225,241)" offset="0" stop-opacity="1" />
+			<stop stop-color="rgb(187,236,34)" offset="1" stop-opacity="1" />
+		</linearGradient>
+	</defs>
+	<g style="mix-blend-mode:normal">
+		<g filter="url(#filter_3)">
+			<rect id="矩形 4098" width="690.000000" height="372.000000" x="30.000000" y="30.000000" rx="20.000000" fill="url(#paint_linear_2)" />
+			<rect id="矩形 4098" width="689.000000" height="371.000000" x="30.500000" y="30.500000" rx="19.500000" stroke="rgb(52,80,102)" stroke-opacity="0" stroke-width="1" />
+		</g>
+	</g>
+</svg>
