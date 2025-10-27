@@ -1,0 +1,33 @@
+# Flutter日志过滤配置
+# 过滤掉不需要的系统日志
+
+# 忽略所有 I/ 开头的系统日志（除了 I/flutter）
+^I/(?!flutter)
+
+# 忽略 D/ 开头的调试日志
+^D/
+
+# 忽略 W/ 开头的警告（除了关键警告）
+^W/(?!flutter)
+
+# 忽略 Choreographer skipped frames
+Skipped.*frames
+
+# 忽略 RtgSched 相关
+RtgSched
+
+# 忽略 Buffer相关
+BufferQueue
+
+# 忽略 SurfaceView相关
+SurfaceView
+
+# 忽略 OpenGLRenderer
+OpenGLRenderer
+
+# 忽略 ViewRootImpl
+ViewRootImpl
+
+# 忽略 HiTouch
+HiTouch
+

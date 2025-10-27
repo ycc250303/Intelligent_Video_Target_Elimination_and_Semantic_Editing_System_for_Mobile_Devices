@@ -1,0 +1,40 @@
+name: coedit
+description: "CoEdit - Collaborative Video Editing App"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_svg: ^2.0.10+1
+  image_picker: ^1.0.7
+  path_provider: ^2.1.2
+  path: ^1.8.3
+  permission_handler: ^11.3.1
+  shared_preferences: ^2.2.2
+  video_player: ^2.8.2
+  photo_view: ^0.14.0
+  video_thumbnail: ^0.5.3
+  http: ^1.2.0
+  gal: ^2.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  
+  # 添加 assets 配置
+  assets:
+    - assets/common/
+    - assets/homePage/
+    - assets/personaPage/
+    - assets/settingPage/
+    - assets/communityPage/
