@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../../../config/app_locales.dart';
 import 'dart:io';
 
 class AccountSection extends StatelessWidget {
@@ -38,8 +39,8 @@ class AccountSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '账户管理',
-                  style: TextStyle(
+                  appLocales.accountSettings,
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Colors.black,

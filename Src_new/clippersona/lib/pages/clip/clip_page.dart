@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../models/message.dart';
 import '../../models/project_models.dart';
 import '../../services/project_service.dart';
+import '../../config/app_locales.dart';
 import 'widgets/chat_input.dart';
 import 'widgets/delete_dialog.dart';
 import 'widgets/clip_app_bar.dart';
+import 'widgets/media_preview_bar.dart';
 import 'sections/history_sidebar.dart';
 import 'sections/chat_messages_section.dart';
 
@@ -20,6 +25,8 @@ class ClipPage extends StatefulWidget {
 class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   final List<Message> _messages = [];
   final ScrollController _scrollController = ScrollController();
+  final ImagePicker _imagePicker = ImagePicker();
+  final List<MediaItem> _pendingMedia = []; // 暂存的媒体文件
   bool _isRecording = false;
   String? _currentProjectId;
   bool _isHistoryOpen = false;
@@ -72,7 +79,8 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   }
 
   void _sendMessage(String text) async {
-    if (text.trim().isEmpty) return;
+    // 如果没有文本也没有媒体，不发送
+    if (text.trim().isEmpty && _pendingMedia.isEmpty) return;
 
     // 如果是新对话且还没有项目ID，创建新项目
     if (_currentProjectId == null) {
@@ -82,19 +90,67 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       });
     }
 
-    setState(() {
-      _messages.add(
-        Message.text(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          content: text,
-          sender: MessageSender.user,
-        ),
+    // 将暂存的媒体转换为 MessageMedia 列表
+    final mediaList = _pendingMedia.map((item) {
+      return MessageMedia(
+        path: item.path,
+        type: item.type == MediaType.image ? 'image' : 'video',
+        thumbnailPath: item.thumbnailPath,
       );
+    }).toList();
+
+    // 根据内容类型发送不同的消息
+    if (_pendingMedia.isNotEmpty && text.trim().isNotEmpty) {
+      // 多模态消息：文本 + 媒体
+      setState(() {
+        _messages.add(
+          Message.multimodal(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            content: text,
+            sender: MessageSender.user,
+            mediaList: mediaList,
+          ),
+        );
+      });
+    } else if (_pendingMedia.isNotEmpty) {
+      // 仅媒体消息
+      setState(() {
+        _messages.add(
+          Message.multimodal(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            content: '',
+            sender: MessageSender.user,
+            mediaList: mediaList,
+          ),
+        );
+      });
+    } else {
+      // 仅文本消息
+      setState(() {
+        _messages.add(
+          Message.text(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            content: text,
+            sender: MessageSender.user,
+          ),
+        );
+      });
+    }
+
+    // 清空暂存区
+    final hadMedia = _pendingMedia.isNotEmpty;
+    setState(() {
+      _pendingMedia.clear();
     });
 
     _scrollToBottom();
     _saveMessages();
-    _simulateBotResponse(text);
+
+    // 根据内容生成机器人回复
+    String botResponseTrigger = text.trim().isNotEmpty
+        ? text
+        : (hadMedia ? '图片视频' : '');
+    _simulateBotResponse(botResponseTrigger);
   }
 
   void _simulateBotResponse(String userMessage) {
@@ -208,6 +264,49 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     await _loadHistoryProjects();
   }
 
+  // 删除所有历史对话
+  Future<void> _deleteAllHistory() async {
+    // 显示确认对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(appLocales.confirmClearHistory),
+          content: Text(appLocales.clearHistoryWarning),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(appLocales.cancel),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: Text(appLocales.confirm),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      // 删除所有历史项目
+      for (final project in _historyProjects) {
+        await ProjectService.instance.deleteProject(project.id);
+      }
+
+      // 创建新对话
+      await _createNewConversation();
+
+      // 重新加载历史
+      await _loadHistoryProjects();
+
+      // 关闭侧边栏
+      setState(() {
+        _isHistoryOpen = false;
+      });
+    }
+  }
+
   // 显示删除确认对话框
   void _showDeleteDialog(Project project) {
     showDialog(
@@ -246,38 +345,139 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     _sendMessage('你好，我想开始剪辑工作');
   }
 
-  void _onImagePick() {
-    // 模拟图片选择
-    setState(() {
-      _messages.add(
-        Message.media(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          content: '我上传了一张图片',
-          type: MessageType.image,
-          sender: MessageSender.user,
-          mediaPath: 'assets/placeholder.png',
-        ),
+  Future<void> _onImagePick() async {
+    // 显示选择对话框：相机或图库
+    final ImageSource? source = await showDialog<ImageSource>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('选择图片来源'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: Colors.blue),
+                title: const Text('拍照'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: Colors.green),
+                title: const Text('从图库选择'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null) return;
+
+    try {
+      // 从选择的来源获取图片
+      final XFile? pickedFile = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
       );
-    });
-    _scrollToBottom();
-    _simulateBotResponse('图片');
+
+      if (pickedFile != null) {
+        // 添加到暂存区，不立即发送
+        setState(() {
+          _pendingMedia.add(
+            MediaItem(path: pickedFile.path, type: MediaType.image),
+          );
+        });
+      }
+    } catch (e) {
+      // 显示错误提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('选择图片失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
-  void _onVideoPick() {
-    // 模拟视频选择
-    setState(() {
-      _messages.add(
-        Message.media(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          content: '我上传了一个视频',
-          type: MessageType.video,
-          sender: MessageSender.user,
-          mediaPath: 'assets/placeholder.mp4',
-        ),
+  Future<void> _onVideoPick() async {
+    // 显示选择对话框：相机或图库
+    final ImageSource? source = await showDialog<ImageSource>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('选择视频来源'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.videocam, color: Colors.red),
+                title: const Text('拍摄视频'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.video_library, color: Colors.purple),
+                title: const Text('从图库选择'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null) return;
+
+    try {
+      // 从选择的来源获取视频
+      final XFile? pickedFile = await _imagePicker.pickVideo(
+        source: source,
+        maxDuration: const Duration(minutes: 5),
       );
-    });
-    _scrollToBottom();
-    _simulateBotResponse('视频');
+
+      if (pickedFile != null) {
+        // 如果是新对话且还没有项目ID，创建新项目
+        if (_currentProjectId == null) {
+          final project = await ProjectService.instance.createNewProject();
+          setState(() {
+            _currentProjectId = project.id;
+          });
+        }
+
+        // 生成视频缩略图
+        String? thumbnailPath;
+        try {
+          final tempDir = await getTemporaryDirectory();
+          thumbnailPath = await VideoThumbnail.thumbnailFile(
+            video: pickedFile.path,
+            thumbnailPath: tempDir.path,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 400,
+            quality: 75,
+          );
+        } catch (e) {
+          debugPrint('生成视频缩略图失败: $e');
+        }
+
+        // 添加到暂存区，不立即发送
+        setState(() {
+          _pendingMedia.add(
+            MediaItem(
+              path: pickedFile.path,
+              type: MediaType.video,
+              thumbnailPath: thumbnailPath,
+            ),
+          );
+        });
+      }
+    } catch (e) {
+      // 显示错误提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('选择视频失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   void _scrollToBottom() {
@@ -289,6 +489,20 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
           curve: Curves.easeOut,
         );
       }
+    });
+  }
+
+  // 清空暂存区
+  void _clearPendingMedia() {
+    setState(() {
+      _pendingMedia.clear();
+    });
+  }
+
+  // 删除暂存区中的某个媒体项
+  void _removePendingMedia(int index) {
+    setState(() {
+      _pendingMedia.removeAt(index);
     });
   }
 
@@ -312,6 +526,12 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
                   historyProjects: _historyProjects,
                   onStartConversation: _startConversation,
                 ),
+              ),
+              // 媒体预览栏（暂存区）
+              MediaPreviewBar(
+                mediaItems: _pendingMedia,
+                onClear: _clearPendingMedia,
+                onRemoveItem: _removePendingMedia,
               ),
               // 输入框
               ChatInput(
@@ -344,6 +564,7 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
                       onClose: _toggleHistory,
                       onProjectTap: _enterHistoryConversation,
                       onProjectDelete: _showDeleteDialog,
+                      onDeleteAll: _deleteAllHistory,
                       formatDateTime: _formatDateTime,
                     ),
                   ),

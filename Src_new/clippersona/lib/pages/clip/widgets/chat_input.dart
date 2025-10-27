@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../config/app_locales.dart';
 
 class ChatInput extends StatefulWidget {
   final Function(String) onSendMessage;
@@ -87,10 +88,10 @@ class _ChatInputState extends State<ChatInput> {
                 child: TextField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  decoration: const InputDecoration(
-                    hintText: '输入消息...',
+                  decoration: InputDecoration(
+                    hintText: appLocales.inputHint,
                     border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(
+                    contentPadding: const EdgeInsets.symmetric(
                       horizontal: 16,
                       vertical: 8,
                     ),

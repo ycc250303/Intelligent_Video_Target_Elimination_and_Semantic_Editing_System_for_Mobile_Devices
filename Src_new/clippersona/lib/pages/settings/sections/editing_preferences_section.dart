@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../../../config/app_locales.dart';
 import '../widgets/setting_dropdown.dart';
 import '../widgets/setting_switch.dart';
 
@@ -58,29 +59,29 @@ class EditingPreferencesSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '剪辑偏好',
-                  style: TextStyle(
+                  appLocales.editingPreferences,
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 SettingDropdown(
-                  title: '导出格式',
+                  title: appLocales.exportFormat,
                   value: exportFormat,
                   options: const ['720p', '1080p', '4K'],
                   onChanged: onExportFormatChanged,
                 ),
                 SettingDropdown(
-                  title: '帧率',
+                  title: appLocales.frameRate,
                   value: frameRate,
                   options: const ['24fps', '30fps', '60fps'],
                   onChanged: onFrameRateChanged,
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 SettingSwitch(
-                  title: '社区动态',
+                  title: appLocales.communityUpdates,
                   value: communityUpdates,
                   onChanged: onCommunityUpdatesChanged,
                 ),

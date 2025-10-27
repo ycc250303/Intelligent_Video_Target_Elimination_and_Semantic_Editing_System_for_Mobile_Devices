@@ -1,23 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../../../config/app_locales.dart';
 import '../widgets/setting_dropdown.dart';
 import '../widgets/setting_switch.dart';
 import '../widgets/setting_button.dart';
 
 class OtherSettingsSection extends StatelessWidget {
   final bool darkMode;
-  final String language;
   final ValueChanged<bool> onDarkModeChanged;
-  final ValueChanged<String> onLanguageChanged;
   final VoidCallback onHelpPressed;
   final VoidCallback onFeedbackPressed;
 
   const OtherSettingsSection({
     super.key,
     required this.darkMode,
-    required this.language,
     required this.onDarkModeChanged,
-    required this.onLanguageChanged,
     required this.onHelpPressed,
     required this.onFeedbackPressed,
   });
@@ -71,31 +68,31 @@ class OtherSettingsSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '其他',
-                  style: TextStyle(
+                  appLocales.otherSettings,
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 SettingSwitch(
-                  title: '深色模式',
+                  title: appLocales.darkMode,
                   value: darkMode,
                   onChanged: onDarkModeChanged,
                 ),
-                SettingDropdown(
-                  title: '语言',
-                  value: language,
-                  options: const ['中文', 'English'],
-                  onChanged: onLanguageChanged,
-                ),
-                SizedBox(height: 20),
+                const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    SettingButton(text: '帮助', onPressed: onHelpPressed),
-                    SettingButton(text: '反馈', onPressed: onFeedbackPressed),
+                    SettingButton(
+                      text: appLocales.help,
+                      onPressed: onHelpPressed,
+                    ),
+                    SettingButton(
+                      text: appLocales.feedback,
+                      onPressed: onFeedbackPressed,
+                    ),
                   ],
                 ),
               ],

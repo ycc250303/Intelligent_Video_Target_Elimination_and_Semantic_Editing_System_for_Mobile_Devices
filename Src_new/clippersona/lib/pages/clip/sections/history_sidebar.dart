@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/project_models.dart';
+import '../../../config/app_locales.dart';
 
 class HistorySidebar extends StatelessWidget {
   final List<Project> historyProjects;
@@ -7,6 +8,7 @@ class HistorySidebar extends StatelessWidget {
   final VoidCallback onClose;
   final Function(Project) onProjectTap;
   final Function(Project) onProjectDelete;
+  final VoidCallback onDeleteAll; // 新增：删除所有历史
   final String Function(DateTime) formatDateTime;
 
   const HistorySidebar({
@@ -16,6 +18,7 @@ class HistorySidebar extends StatelessWidget {
     required this.onClose,
     required this.onProjectTap,
     required this.onProjectDelete,
+    required this.onDeleteAll,
     required this.formatDateTime,
   });
 
@@ -43,32 +46,53 @@ class HistorySidebar extends StatelessWidget {
                 bottom: BorderSide(color: Color(0xFF374151), width: 1),
               ),
             ),
-            child: Row(
+            child: Column(
               children: [
-                const Text(
-                  '历史对话',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    Text(
+                      appLocales.historyTitle,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: onClose,
+                      tooltip: appLocales.back,
+                    ),
+                  ],
+                ),
+                // 一键删除所有按钮
+                if (historyProjects.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: onDeleteAll,
+                      icon: const Icon(Icons.delete_sweep, size: 18),
+                      label: Text(appLocales.clearAllHistory),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red[700],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
                   ),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
-                  onPressed: onClose,
-                  tooltip: '关闭',
-                ),
+                ],
               ],
             ),
           ),
           // 历史对话列表
           Expanded(
             child: historyProjects.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
-                      '暂无历史对话',
-                      style: TextStyle(color: Colors.grey, fontSize: 16),
+                      appLocales.noHistory,
+                      style: const TextStyle(color: Colors.grey, fontSize: 16),
                     ),
                   )
                 : ListView.builder(
@@ -121,7 +145,7 @@ class HistorySidebar extends StatelessWidget {
                 size: 20,
               ),
               onPressed: () => onProjectDelete(project),
-              tooltip: '删除对话',
+              tooltip: appLocales.delete,
             ),
           ],
         ),

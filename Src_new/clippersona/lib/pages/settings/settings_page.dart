@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'sections/account_section.dart';
 import 'sections/editing_preferences_section.dart';
 import 'sections/other_settings_section.dart';
+import 'sections/language_section.dart';
 import '../../services/avatar_service.dart';
+import '../../config/app_locales.dart';
+import '../../config/locale_manager.dart';
+import '../../config/settings_manager.dart';
 import 'dart:io';
 
 class SettingsPage extends StatefulWidget {
@@ -17,16 +21,28 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _avatarPath;
 
   // 设置状态
-  bool _communityUpdates = true;
   bool _darkMode = true;
   String _exportFormat = "1080p";
   String _frameRate = "30fps";
-  String _language = "中文";
+  final LocaleManager _localeManager = LocaleManager();
+  final SettingsManager _settingsManager = SettingsManager();
 
   @override
   void initState() {
     super.initState();
     _loadAvatar();
+    // 监听设置变化
+    _settingsManager.addListener(_onSettingsChanged);
+  }
+
+  @override
+  void dispose() {
+    _settingsManager.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    setState(() {}); // 重新构建UI
   }
 
   Future<void> _loadAvatar() async {
@@ -42,7 +58,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('设置'),
+        title: Text(appLocales.settingsTitle),
         centerTitle: true,
         foregroundColor: Colors.white,
         backgroundColor: Colors.transparent,
@@ -77,7 +93,7 @@ class _SettingsPageState extends State<SettingsPage> {
               EditingPreferencesSection(
                 exportFormat: _exportFormat,
                 frameRate: _frameRate,
-                communityUpdates: _communityUpdates,
+                communityUpdates: _settingsManager.communityUpdatesEnabled,
                 onExportFormatChanged: (value) {
                   setState(() {
                     _exportFormat = value;
@@ -89,8 +105,17 @@ class _SettingsPageState extends State<SettingsPage> {
                   });
                 },
                 onCommunityUpdatesChanged: (value) {
+                  _settingsManager.setCommunityUpdates(value);
+                },
+              ),
+              SizedBox(height: 15),
+
+              // 语言设置部分
+              LanguageSection(
+                currentLocale: _localeManager.currentLocale,
+                onLocaleChanged: (locale) {
                   setState(() {
-                    _communityUpdates = value;
+                    _localeManager.setLocale(locale);
                   });
                 },
               ),
@@ -99,15 +124,9 @@ class _SettingsPageState extends State<SettingsPage> {
               // 其他设置部分
               OtherSettingsSection(
                 darkMode: _darkMode,
-                language: _language,
                 onDarkModeChanged: (value) {
                   setState(() {
                     _darkMode = value;
-                  });
-                },
-                onLanguageChanged: (value) {
-                  setState(() {
-                    _language = value;
                   });
                 },
                 onHelpPressed: () {
@@ -137,20 +156,26 @@ class _SettingsPageState extends State<SettingsPage> {
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('头像更新成功'),
-              backgroundColor: Color(0xFF4CAF50),
+              content: Text(appLocales.avatarUpdated),
+              backgroundColor: const Color(0xFF4CAF50),
             ),
           );
         } else if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('头像保存失败'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text(appLocales.avatarSaveFailed),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('头像选择失败: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('${appLocales.avatarSelectFailed}: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -161,23 +186,23 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('编辑用户名'),
+          title: Text(appLocales.edit),
           content: TextField(
-            decoration: InputDecoration(labelText: '用户名'),
+            decoration: InputDecoration(labelText: appLocales.accountSettings),
             controller: TextEditingController(text: _userName),
             onChanged: (value) => _userName = value,
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('取消'),
+              child: Text(appLocales.cancel),
             ),
             TextButton(
               onPressed: () {
                 setState(() {});
                 Navigator.pop(context);
               },
-              child: Text('保存'),
+              child: Text(appLocales.save),
             ),
           ],
         );

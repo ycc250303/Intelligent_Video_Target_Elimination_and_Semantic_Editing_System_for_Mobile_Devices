@@ -1,6 +1,6 @@
-# mytest
+# CoEdit
 
-A new Flutter project.
+CoEdit - Collaborative Video Editing App
 
 ## Getting Started
 

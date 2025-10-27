@@ -1,5 +1,5 @@
-name: mytest
-description: "A new Flutter project."
+name: coedit
+description: "CoEdit - Collaborative Video Editing App"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -17,6 +17,9 @@ dependencies:
   path: ^1.8.3
   permission_handler: ^11.3.1
   shared_preferences: ^2.2.2
+  video_player: ^2.8.2
+  photo_view: ^0.14.0
+  video_thumbnail: ^0.5.3
 
 dev_dependencies:
   flutter_test:
