@@ -1,0 +1,10 @@
+{
+  "operations": {
+    "operation": "trim",
+    "params": {
+      "start": 1.0,
+      "end": 5.0
+    },
+    "editor": "ffmpeg"
+  }
+}

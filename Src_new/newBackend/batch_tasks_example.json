@@ -1,0 +1,17 @@
+[
+    {
+        "text": "生成一个城市夜景视频，车流穿梭，霓虹灯闪烁",
+        "auto_execute": true
+    },
+    {
+        "text": "让这张图片动起来，添加微风效果",
+        "image_path": "test_image.png",
+        "auto_execute": true
+    },
+    {
+        "text": "剪掉前3秒，然后加速1.5倍",
+        "video_path": "input.mp4",
+        "auto_execute": true
+    }
+]
+
