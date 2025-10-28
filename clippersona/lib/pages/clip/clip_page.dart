@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../models/message.dart';
 import '../../models/project_models.dart';
 import '../../services/project_service.dart';
@@ -95,6 +97,50 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   void _sendMessage(String text) async {
     // 如果没有文本也没有媒体，不发送
     if (text.trim().isEmpty && _pendingMedia.isEmpty) return;
+
+    // === 输入验证 ===
+    final hasText = text.trim().isNotEmpty;
+    final hasVideo = _pendingMedia.any((m) => m.type == MediaType.video);
+    final hasImage = _pendingMedia.any((m) => m.type == MediaType.image);
+
+    // 1️⃣ 只有视频或只有图片（无文本） → 提醒用户补充指令
+    if (!hasText && (hasVideo || hasImage)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              hasVideo
+                  ? '请输入您想对视频进行的操作指令\n例如：裁剪前5秒、加速2倍、添加滤镜等'
+                  : '请输入您想对图片进行的操作指令\n例如：生成视频、添加动画效果等',
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      return; // 不发送，让用户补充文本
+    }
+
+    // 2️⃣ 文本+视频+图片（同时存在） → 暂不支持
+    if (hasVideo && hasImage) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('暂不支持同时处理视频和图片\n请选择其中一种类型的媒体进行处理'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return; // 不发送
+    }
+
+    // 3️⃣ 验证通过的场景：
+    // ✅ 纯文本（文生视频）
+    // ✅ 文本+图片（图生视频）
+    // ✅ 文本+视频（视频编辑）
+
+    print('📤 发送消息 - 文本: $hasText, 视频: $hasVideo, 图片: $hasImage');
 
     // 如果是新对话且还没有项目ID，创建新项目
     if (_currentProjectId == null) {
@@ -212,20 +258,39 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
           _handleProcessResult(result, processingMessageId);
         }
       } else {
-        // 处理失败
-        _updateBotMessage(
-          processingMessageId,
-          '处理失败：${result?.errorMessage ?? "未知错误"}',
-        );
+        // 处理失败 - 输出详细日志，但向用户显示友好消息
+        final errorDetail = result?.errorMessage ?? "未知错误";
+        print('❌ 后端处理失败，详细错误: $errorDetail');
+
+        // 向用户显示更友好的提示
+        String friendlyMessage = '抱歉，处理遇到了一些问题';
+        if (errorDetail.contains('422') ||
+            errorDetail.contains('Unprocessable')) {
+          friendlyMessage = '抱歉，上传的文件格式可能有问题，请重试';
+        } else if (errorDetail.contains('timeout') ||
+            errorDetail.contains('超时')) {
+          friendlyMessage = '处理时间有点长，请稍后再试';
+        } else if (errorDetail.contains('network') ||
+            errorDetail.contains('网络')) {
+          friendlyMessage = '网络似乎不太稳定，请检查连接后重试';
+        }
+
+        _updateBotMessage(processingMessageId, friendlyMessage);
       }
     } catch (e) {
-      _updateBotMessage(processingMessageId, '处理出错：$e');
+      // 捕获异常 - 输出详细日志
+      print('❌ 处理多模态输入异常，详细信息: $e');
+      print('异常类型: ${e.runtimeType}');
+
+      // 向用户显示友好提示
+      _updateBotMessage(processingMessageId, '抱歉，处理遇到了一些问题，请稍后重试');
     }
   }
 
   /// 轮询异步任务状态
   void _pollTaskStatus(String taskId, String messageId) async {
     print('🔄 开始轮询任务状态，task_id: $taskId');
+
     int retryCount = 0;
     const maxRetries = 60; // 最多轮询60次（2分钟）
     const pollInterval = Duration(seconds: 2);
@@ -235,7 +300,11 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       retryCount++;
 
       try {
-        print('🔄 轮询次数: $retryCount, 获取任务状态...');
+        // 每10次才打印一次日志，减少日志输出
+        if (retryCount % 10 == 1 || retryCount == 1) {
+          print('🔄 轮询次数: $retryCount/$maxRetries, 获取任务状态...');
+        }
+
         final taskStatus = await BackendSessionService.getTaskStatus(taskId);
 
         if (taskStatus == null) {
@@ -244,13 +313,13 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
           return;
         }
 
-        print('📊 任务状态: ${taskStatus.status}');
-        print('📊 videoUrl: ${taskStatus.videoUrl}');
-        print('📊 outputPath: ${taskStatus.outputPath}');
+        // 只在状态变化时打印
+        if (retryCount % 5 == 0) {
+          print('📊 任务状态: ${taskStatus.status}');
+        }
 
         if (taskStatus.isCompleted) {
-          // 任务完成
-          print('✅ 任务完成！');
+          print('✅ 任务完成！outputPath: ${taskStatus.outputPath}');
           if (taskStatus.videoUrl != null && taskStatus.videoUrl!.isNotEmpty) {
             print('📹 开始下载视频: ${taskStatus.videoUrl}');
             // 下载视频
@@ -553,7 +622,151 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     await _loadHistoryProjects(); // 重新加载历史项目
   }
 
+  /// 检查并请求图片权限
+  Future<bool> _checkAndRequestPhotoPermission() async {
+    // Android 13+ 使用 photos 权限，Android 12 及以下使用 storage 权限
+    // permission_handler会自动处理版本适配
+    Permission permission = Permission.photos;
+
+    // 先检查新权限
+    PermissionStatus status = await permission.status;
+    if (status.isGranted) return true;
+
+    // 如果新权限不可用（Android 12-），尝试旧权限
+    if (status.isDenied) {
+      // 尝试请求，如果是旧版本会自动fallback到storage
+      status = await permission.request();
+      if (status.isGranted) return true;
+
+      // 如果还是不行，尝试旧的storage权限
+      Permission storagePermission = Permission.storage;
+      PermissionStatus storageStatus = await storagePermission.status;
+      if (storageStatus.isGranted) return true;
+
+      if (storageStatus.isDenied) {
+        storageStatus = await storagePermission.request();
+        if (storageStatus.isGranted) {
+          print('✅ 图片权限已授予（使用storage）');
+          return true;
+        }
+      }
+    }
+
+    return await _checkAndRequestPermission(permission, '图片');
+  }
+
+  /// 检查并请求视频权限
+  Future<bool> _checkAndRequestVideoPermission() async {
+    // Android 13+ 使用 videos 权限，Android 12 及以下使用 storage 权限
+    Permission permission = Permission.videos;
+
+    // 先检查新权限
+    PermissionStatus status = await permission.status;
+    if (status.isGranted) return true;
+
+    // 如果新权限不可用（Android 12-），尝试旧权限
+    if (status.isDenied) {
+      // 尝试请求，如果是旧版本会自动fallback到storage
+      status = await permission.request();
+      if (status.isGranted) return true;
+
+      // 如果还是不行，尝试旧的storage权限
+      Permission storagePermission = Permission.storage;
+      PermissionStatus storageStatus = await storagePermission.status;
+      if (storageStatus.isGranted) return true;
+
+      if (storageStatus.isDenied) {
+        storageStatus = await storagePermission.request();
+        if (storageStatus.isGranted) {
+          print('✅ 视频权限已授予（使用storage）');
+          return true;
+        }
+      }
+    }
+
+    return await _checkAndRequestPermission(permission, '视频');
+  }
+
+  /// 通用权限检查和请求方法
+  Future<bool> _checkAndRequestPermission(
+    Permission permission,
+    String mediaType,
+  ) async {
+    // 检查当前权限状态
+    PermissionStatus status = await permission.status;
+    print('📱 $mediaType权限状态: $status');
+
+    if (status.isGranted) {
+      return true;
+    }
+
+    // 如果未授予，请求权限
+    if (status.isDenied) {
+      print('📱 请求$mediaType权限...');
+      status = await permission.request();
+
+      if (status.isGranted) {
+        print('✅ $mediaType权限已授予');
+        return true;
+      }
+    }
+
+    // 如果被永久拒绝，引导用户到设置
+    if (status.isPermanentlyDenied) {
+      print('⚠️ $mediaType权限被永久拒绝，引导用户到设置');
+      final shouldOpenSettings = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('需要权限'),
+            content: Text(
+              '访问$mediaType需要存储权限。\n\n'
+              '请在"设置 → 应用 → CoEdit → 权限"中开启：\n'
+              '• 照片和视频\n'
+              '• 文件和媒体\n\n'
+              '是否前往设置？',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: TextButton.styleFrom(foregroundColor: Colors.blue),
+                child: const Text('前往设置'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (shouldOpenSettings == true) {
+        await openAppSettings();
+      }
+      return false;
+    }
+
+    // 其他情况（被拒绝但不是永久）
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('需要访问权限才能选择$mediaType'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+    return false;
+  }
+
   Future<void> _onImagePick() async {
+    // 1️⃣ 先检查并请求权限
+    if (!await _checkAndRequestPhotoPermission()) {
+      print('❌ 图片权限被拒绝');
+      return;
+    }
+
     // 显示选择对话框：相机或图库
     final ImageSource? source = await showDialog<ImageSource>(
       context: context,
@@ -609,8 +822,16 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   }
 
   Future<void> _onVideoPick() async {
+    print('📹 开始选择视频...');
+
+    // 1️⃣ 先检查并请求权限
+    if (!await _checkAndRequestVideoPermission()) {
+      print('❌ 权限被拒绝');
+      return;
+    }
+
     // 显示选择对话框：相机或图库
-    final ImageSource? source = await showDialog<ImageSource>(
+    final String? source = await showDialog<String>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
@@ -621,12 +842,12 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
               ListTile(
                 leading: const Icon(Icons.videocam, color: Colors.red),
                 title: const Text('拍摄视频'),
-                onTap: () => Navigator.pop(context, ImageSource.camera),
+                onTap: () => Navigator.pop(context, 'camera'),
               ),
               ListTile(
                 leading: const Icon(Icons.video_library, color: Colors.purple),
                 title: const Text('从图库选择'),
-                onTap: () => Navigator.pop(context, ImageSource.gallery),
+                onTap: () => Navigator.pop(context, 'gallery'),
               ),
             ],
           ),
@@ -634,16 +855,44 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       },
     );
 
-    if (source == null) return;
+    if (source == null) {
+      print('❌ 用户取消选择');
+      return;
+    }
+
+    print('📹 选择来源: $source');
 
     try {
-      // 从选择的来源获取视频
-      final XFile? pickedFile = await _imagePicker.pickVideo(
-        source: source,
-        maxDuration: const Duration(minutes: 5),
-      );
+      String? videoPath;
 
-      if (pickedFile != null) {
+      if (source == 'camera') {
+        // 使用 image_picker 拍摄视频（相机功能正常）
+        print('📹 调用相机拍摄视频...');
+        final XFile? pickedFile = await _imagePicker.pickVideo(
+          source: ImageSource.camera,
+          maxDuration: const Duration(minutes: 5),
+        );
+        videoPath = pickedFile?.path;
+        print('📹 拍摄结果: ${videoPath ?? "null"}');
+      } else {
+        // 使用 file_picker 从图库选择（兼容 Android 11+）
+        print('📹 调用 FilePicker 选择视频...');
+        FilePickerResult? result = await FilePicker.platform.pickFiles(
+          type: FileType.video,
+          allowMultiple: false,
+        );
+
+        if (result != null && result.files.single.path != null) {
+          videoPath = result.files.single.path!;
+          print('📹 FilePicker 返回: $videoPath');
+        } else {
+          print('❌ FilePicker 返回 null');
+        }
+      }
+
+      if (videoPath != null) {
+        print('✅ 视频选择成功: $videoPath');
+
         // 如果是新对话且还没有项目ID，创建新项目
         if (_currentProjectId == null) {
           await _createNewProjectWithBackend();
@@ -652,34 +901,53 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
         // 生成视频缩略图
         String? thumbnailPath;
         try {
+          print('📸 生成视频缩略图...');
           final tempDir = await getTemporaryDirectory();
           thumbnailPath = await VideoThumbnail.thumbnailFile(
-            video: pickedFile.path,
+            video: videoPath,
             thumbnailPath: tempDir.path,
             imageFormat: ImageFormat.JPEG,
             maxWidth: 400,
             quality: 75,
           );
+          print('✅ 缩略图生成成功: $thumbnailPath');
         } catch (e) {
-          debugPrint('生成视频缩略图失败: $e');
+          print('⚠️ 生成视频缩略图失败: $e');
         }
 
         // 添加到暂存区，不立即发送
         setState(() {
           _pendingMedia.add(
             MediaItem(
-              path: pickedFile.path,
+              path: videoPath!,
               type: MediaType.video,
               thumbnailPath: thumbnailPath,
             ),
           );
         });
+        print('✅ 视频已添加到暂存区');
+      } else {
+        print('❌ 未选择视频');
       }
     } catch (e) {
-      // 显示错误提示
+      print('❌ 选择视频异常: $e');
+      print('异常类型: ${e.runtimeType}');
+
+      // 显示更详细的错误提示
       if (mounted) {
+        String errorMsg = '选择视频失败';
+        if (e.toString().contains('no_valid_video_uri')) {
+          errorMsg = '无法访问所选视频，Android 11+ 系统限制';
+        } else if (e.toString().contains('permission')) {
+          errorMsg = '没有访问权限，请在设置中允许访问存储';
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('选择视频失败: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('$errorMsg\n详情: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     }
