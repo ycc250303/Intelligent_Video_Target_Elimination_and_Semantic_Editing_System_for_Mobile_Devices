@@ -4,14 +4,15 @@ import sys
 import requests
 import glob
 import re
+import json
 from http import HTTPStatus
-from dashscope import VideoSynthesis
+from dashscope import VideoSynthesis, MultiModalConversation
 import mimetypes
 import dashscope
 
 # 添加父目录到路径，以便导入config模块
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.config import QWEN_API_KEY, QWEN_BASE_GENERATE_VIDEO_URL
+from config.config import QWEN_API_KEY, QWEN_BASE_GENERATE_MEDIA_URL
 
 
 class QwenVideoEditor:
@@ -19,7 +20,7 @@ class QwenVideoEditor:
         self.api_key = QWEN_API_KEY
         self.base_dir = base_dir
         dashscope.api_key = self.api_key
-        dashscope.base_http_api_url = QWEN_BASE_GENERATE_VIDEO_URL
+        dashscope.base_http_api_url = QWEN_BASE_GENERATE_MEDIA_URL
         if not os.path.exists(self.base_dir):
             os.makedirs(self.base_dir)
 
@@ -270,6 +271,89 @@ class QwenVideoEditor:
         if video_url:
             return self.download_video(video_url, self.base_dir)
         return None
+
+    def make_image_by_text(self, text, model='qwen-image-plus', size='1328*1328', 
+                          watermark=True, prompt_extend=True, negative_prompt=''):
+        """
+        从文本生成图片
+        Args:
+            text: 图片生成的文本描述
+            model: 使用的模型，默认'qwen-image-plus'
+            size: 图片尺寸，默认'1328*1328'，支持1024*1024、1328*1328等
+            watermark: 是否添加水印，默认True
+            prompt_extend: 是否智能改写提示词，默认True
+            negative_prompt: 负向提示词，默认为空
+        Returns:
+            str: 生成的图片本地路径，如果失败返回None
+        """
+        if text is None or text == "":
+            print("❌ 错误: 文本描述为空")
+            return None
+        
+        print(f'🎨 开始文生图，提示词: {text[:50]}...')
+        print(f'   模型: {model}, 尺寸: {size}')
+        
+        try:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"text": text}
+                    ]
+                }
+            ]
+            
+            response = MultiModalConversation.call(
+                api_key=self.api_key,
+                model=model,
+                messages=messages,
+                result_format='message',
+                stream=False,
+                watermark=watermark,
+                prompt_extend=prompt_extend,
+                negative_prompt=negative_prompt,
+                size=size
+            )
+            
+            if response.status_code == 200:
+                print(f'✅ 图片生成成功')
+                # 从响应中获取图片URL
+                image_url = response.output.choices[0].message.content[0]['image']
+                print(f'   图片URL: {image_url}')
+                
+                # 下载图片到本地
+                if not os.path.exists(self.base_dir):
+                    os.makedirs(self.base_dir)
+                
+                # 生成文件名
+                import time
+                filename = f"generated_image_{int(time.time())}.png"
+                save_path = os.path.join(self.base_dir, filename)
+                
+                # 下载图片
+                print(f'正在下载图片...')
+                img_response = requests.get(image_url, stream=True)
+                if img_response.status_code == 200:
+                    with open(save_path, "wb") as f:
+                        for chunk in img_response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    print(f'✅ 图片下载完成: {save_path}')
+                    return save_path
+                else:
+                    print(f'❌ 图片下载失败，状态码: {img_response.status_code}')
+                    return None
+            else:
+                #print(f"❌ HTTP返回码：{response.status_code}")
+                #print(f"   错误码：{response.code}")
+                #print(f"   错误信息：{response.message}")
+                #print("   请参考文档：https://help.aliyun.com/zh/model-studio/developer-reference/error-code")
+                return None
+                
+        except Exception as e:
+            #print(f'❌ 文生图异常: {str(e)}')
+            import traceback
+            traceback.print_exc()
+            return None
 
 
 if __name__ == '__main__':

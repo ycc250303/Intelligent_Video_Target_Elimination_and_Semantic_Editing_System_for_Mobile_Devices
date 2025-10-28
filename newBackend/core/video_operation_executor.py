@@ -254,12 +254,12 @@ class VideoOperationExecutor:
             'loop': 'loop',
             'reverse': 'reverse',
             'add_subtitle': 'add_subtitle',
-            # Qwen 视频生成操作
+            # Qwen AI生成操作
             'make_video_by_text': 'make_video_by_text',
             'make_video_by_first_frame': 'make_video_by_first_frame',
             'make_video_by_first_and_last_frame': 'make_video_by_first_and_last_frame',
             'make_video_by_first_frame_and_template': 'make_video_by_first_frame_and_template',
-            'extend_video': 'extend_video'
+            'make_image_by_text': 'make_image_by_text'  # 文生图操作
         }
         
         method_name = method_mapping.get(operation_name)

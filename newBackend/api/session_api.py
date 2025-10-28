@@ -381,10 +381,11 @@ async def process_multimodal_in_session(
             )
             
             output_path = None
-            video_url = None
+            media_url = None
+            output_type = None  # 'video' 或 'image'
             
-            # 2. 如果解析成功，执行视频操作
-            # 注意：文生视频类操作（make_video_by_text等）不需要input_video
+            # 2. 如果解析成功，执行操作（视频编辑或AI生成）
+            # 注意：文生视频/文生图等操作不需要input_video
             if result.get("success") and result.get("action"):
                 try:
                     import json
@@ -396,11 +397,11 @@ async def process_multimodal_in_session(
                     
                     # 解析JSON操作指令
                     operation_json = json.loads(action_content)
-                    logger.info(f"🎬 执行视频操作: {operation_json}")
+                    operation_name = operation_json.get("operations", {}).get("operation", "")
+                    logger.info(f"🎬 执行操作: {operation_name}")
+                    logger.info(f"   操作详情: {operation_json}")
                     
-                    logger.info(f"🎬 执行视频操作: {operation_json}")
-                    
-                    # 执行视频操作（video_path可能为None，对于文生视频操作）
+                    # 执行操作（video_path可能为None，对于文生视频/文生图操作）
                     exec_result = video_executor.execute_from_json(
                         operation_json,
                         input_video=video_path  # 文生视频时为None也没问题
@@ -410,23 +411,36 @@ async def process_multimodal_in_session(
                     
                     if exec_result.success and exec_result.output_path:
                         output_path = exec_result.output_path
+                        
+                        # 判断输出类型（图片还是视频）
+                        file_ext = os.path.splitext(output_path)[1].lower()
+                        if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                            output_type = 'image'
+                            logger.info(f"✅ 图片生成成功: {output_path}")
+                        elif file_ext in ['.mp4', '.avi', '.mov', '.mkv']:
+                            output_type = 'video'
+                            logger.info(f"✅ 视频处理成功: {output_path}")
+                        else:
+                            output_type = 'video'  # 默认为视频
+                            logger.info(f"✅ 文件生成成功: {output_path}")
+                        
                         # 生成可访问的URL（相对于项目根目录data文件夹的路径）
                         _project_root = Path(__file__).parent.parent.parent
                         _data_dir = _project_root / "data"
                         relative_path = os.path.relpath(output_path, str(_data_dir))
-                        # 修正：移除/api/v2前缀
-                        video_url = f"/media/{relative_path.replace(os.sep, '/')}"
+                        media_url = f"/media/{relative_path.replace(os.sep, '/')}"
                         
-                        logger.info(f"✅ 视频处理成功: {output_path}")
-                        logger.info(f"✅ 可访问URL: {video_url}")
+                        logger.info(f"✅ 可访问URL: {media_url}")
                     else:
-                        logger.error(f"❌ 视频处理失败: {exec_result.error_message}")
+                        logger.error(f"❌ 操作失败: {exec_result.error_message}")
                     
                     # 更新结果
                     result["execution"] = {
                         "success": exec_result.success,
                         "output_path": output_path,
-                        "video_url": video_url,
+                        "media_url": media_url,
+                        "video_url": media_url,  # 保持向后兼容
+                        "output_type": output_type,
                         "error_message": exec_result.error_message,
                         "operation_name": exec_result.operation_name,
                         "execution_time": exec_result.execution_time
@@ -443,18 +457,45 @@ async def process_multimodal_in_session(
             
             # 3. 添加助手回复到会话
             assistant_content = result.get("response", "")
+            
+            # 检查是否实际执行了操作
+            if not result.get("action") or result.get("action") == "None":
+                # 千问无法理解/不支持该操作
+                logger.warning(f"⚠️ 千问无法解析操作，action为空或None")
+                assistant_content = (
+                    "抱歉，我还不太理解这个操作。\n\n"
+                    "您可以尝试：\n"
+                    "• 裁剪视频（如\"裁剪前5秒\"）\n"
+                    "• 调整速度（如\"加速2倍\"）\n"
+                    "• 生成视频（如\"生成一个小猫奔跑的视频\"）\n"
+                    "• 生成图片（如\"画一朵玉兰花\"）\n"
+                    "• 或者换一种表述方式"
+                )
+            elif output_path and output_type:
+                if output_type == 'image':
+                    assistant_content += f"\n\n✨ 图片已生成完成！"
+                else:
+                    assistant_content += f"\n\n🎬 视频已处理完成！"
+            
+            # 根据输出类型选择消息类型
+            message_type = MessageType.SYSTEM
             if output_path:
-                assistant_content += f"\n\n视频已处理完成！"
+                if output_type == 'image':
+                    message_type = MessageType.IMAGE
+                else:
+                    message_type = MessageType.VIDEO
             
             session_manager.add_message_to_session(
                 session_id=session_id,
                 content=assistant_content,
-                message_type=MessageType.VIDEO if output_path else MessageType.SYSTEM,
+                message_type=message_type,
                 sender=MessageSender.ASSISTANT,
                 media_path=output_path,
                 metadata={
                     "action": result.get("action"),
-                    "video_url": video_url
+                    "media_url": media_url,
+                    "video_url": media_url,  # 保持向后兼容
+                    "output_type": output_type
                 }
             )
             
@@ -464,10 +505,12 @@ async def process_multimodal_in_session(
                 status=SessionStatus.ACTIVE
             )
             
-            # 5. 确保返回值包含output_path（用于任务执行器提取）
+            # 5. 确保返回值包含output_path和media_url（用于任务执行器提取）
             if result.get("execution"):
                 result["output_path"] = result["execution"].get("output_path")
-                result["video_url"] = result["execution"].get("video_url")
+                result["media_url"] = result["execution"].get("media_url")
+                result["video_url"] = result["execution"].get("video_url")  # 保持向后兼容
+                result["output_type"] = result["execution"].get("output_type")
             
             return result
         
@@ -502,15 +545,17 @@ async def process_multimodal_in_session(
             
             return {
                 "status": "success",
-                "message": "处理完成",  # 添加 message 字段
+                "message": "处理完成",
                 "modal_type": result.get("modal_type", "text"),
                 "response": result.get("response", ""),
                 "action": result.get("action"),
                 "session_id": session_id,
                 "async": False,
-                # 添加视频URL字段
-                "video_url": execution.get("video_url"),
+                # 媒体URL字段（支持图片和视频）
+                "media_url": execution.get("media_url"),
+                "video_url": execution.get("video_url"),  # 保持向后兼容
                 "output_path": execution.get("output_path"),
+                "output_type": execution.get("output_type"),
                 "execution": execution
             }
         
@@ -542,23 +587,32 @@ async def get_task_status(task_id: str):
         if not result:
             raise HTTPException(status_code=404, detail="任务不存在")
         
-        # 生成可访问的视频URL（不需要/api/v2前缀，因为现在直接运行session_app）
-        video_url = None
+        # 生成可访问的媒体URL（支持图片和视频）
+        media_url = None
+        output_type = None
         if result.output_path and os.path.exists(result.output_path):
             try:
+                # 判断输出类型
+                file_ext = os.path.splitext(result.output_path)[1].lower()
+                if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                    output_type = 'image'
+                elif file_ext in ['.mp4', '.avi', '.mov', '.mkv']:
+                    output_type = 'video'
+                else:
+                    output_type = 'video'  # 默认为视频
+                
                 _project_root = Path(__file__).parent.parent.parent
                 _data_dir = _project_root / "data"
                 relative_path = os.path.relpath(result.output_path, str(_data_dir))
-                # 修正：移除/api/v2前缀
-                video_url = f"/media/{relative_path.replace(os.sep, '/')}"
-                logger.info(f"生成视频URL: {video_url}")
+                media_url = f"/media/{relative_path.replace(os.sep, '/')}"
+                logger.info(f"生成媒体URL ({output_type}): {media_url}")
             except ValueError:
-                # 如果路径不在data目录下，尝试其他方式
+                # 如果路径不在data目录下，尝试从execution结果中获取
                 logger.warning(f"输出路径不在data目录: {result.output_path}")
-                # 尝试从execution结果中获取
                 if hasattr(result, 'result') and isinstance(result.result, dict):
                     execution = result.result.get('execution', {})
-                    video_url = execution.get('video_url')
+                    media_url = execution.get('media_url') or execution.get('video_url')
+                    output_type = execution.get('output_type', 'video')
         
         return {
             "status": "success",
@@ -567,7 +621,9 @@ async def get_task_status(task_id: str):
                 "session_id": result.session_id,
                 "status": result.status.value,
                 "output_path": result.output_path,
-                "video_url": video_url,  # ⭐ 添加可访问的URL
+                "media_url": media_url,
+                "video_url": media_url,  # 保持向后兼容
+                "output_type": output_type,
                 "error_message": result.error_message,
                 "execution_time": result.execution_time,
                 "metadata": result.metadata

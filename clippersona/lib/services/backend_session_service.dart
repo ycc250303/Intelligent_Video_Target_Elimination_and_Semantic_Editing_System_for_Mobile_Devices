@@ -364,9 +364,9 @@ class BackendSessionService {
     }
   }
 
-  /// 下载处理后的视频
+  /// 下载处理后的媒体（视频或图片）
   ///
-  /// 从后端下载视频文件到本地
+  /// 从后端下载媒体文件到本地
   static Future<String?> downloadVideo({
     required String videoUrl,
     String? filename,
@@ -377,7 +377,7 @@ class BackendSessionService {
           ? videoUrl
           : '$baseUrl$videoUrl';
 
-      print('开始下载视频: $fullUrl');
+      print('开始下载媒体: $fullUrl');
 
       // 发送GET请求
       final response = await http.get(Uri.parse(fullUrl));
@@ -390,23 +390,40 @@ class BackendSessionService {
           await videosDir.create(recursive: true);
         }
 
+        // 从URL中提取文件扩展名
+        String fileExtension = '.mp4'; // 默认为视频
+        try {
+          final uri = Uri.parse(fullUrl);
+          final pathSegments = uri.pathSegments;
+          if (pathSegments.isNotEmpty) {
+            final lastSegment = pathSegments.last;
+            final dotIndex = lastSegment.lastIndexOf('.');
+            if (dotIndex != -1) {
+              fileExtension = lastSegment.substring(dotIndex);
+            }
+          }
+        } catch (e) {
+          print('提取文件扩展名失败，使用默认.mp4: $e');
+        }
+
         // 生成文件名
         final fileName =
-            filename ?? 'video_${DateTime.now().millisecondsSinceEpoch}.mp4';
+            filename ??
+            'media_${DateTime.now().millisecondsSinceEpoch}$fileExtension';
         final filePath = '${videosDir.path}/$fileName';
 
         // 保存文件
         final file = File(filePath);
         await file.writeAsBytes(response.bodyBytes);
 
-        print('视频下载成功: $filePath');
+        print('媒体下载成功: $filePath');
         return filePath;
       } else {
-        print('下载视频失败: ${response.statusCode}');
+        print('下载媒体失败: ${response.statusCode}');
         return null;
       }
     } catch (e) {
-      print('下载视频时出错: $e');
+      print('下载媒体时出错: $e');
       return null;
     }
   }
@@ -424,7 +441,9 @@ class ProcessResult {
   final bool success;
   final String? taskId;
   final String? videoUrl;
+  final String? mediaUrl; // 新增：统一的媒体URL
   final String? outputPath;
+  final String? outputType; // 新增：输出类型（'image' 或 'video'）
   final String? response;
   final String? errorMessage;
   final bool isAsync;
@@ -433,7 +452,9 @@ class ProcessResult {
     required this.success,
     this.taskId,
     this.videoUrl,
+    this.mediaUrl,
     this.outputPath,
+    this.outputType,
     this.response,
     this.errorMessage,
     this.isAsync = false,
@@ -446,12 +467,21 @@ class ProcessResult {
       success: json['status'] == 'success',
       taskId: json['task_id'],
       videoUrl: execution?['video_url'] ?? json['video_url'],
+      mediaUrl: execution?['media_url'] ?? json['media_url'],
       outputPath: execution?['output_path'] ?? json['output_path'],
+      outputType: execution?['output_type'] ?? json['output_type'],
       response: json['response'],
       errorMessage: json['error_message'],
       isAsync: json['async'] ?? false,
     );
   }
+
+  // 判断是否为图片
+  bool get isImage => outputType == 'image';
+  // 判断是否为视频
+  bool get isVideo => outputType == 'video' || outputType == null; // 默认视频
+  // 获取媒体URL（优先使用mediaUrl，fallback到videoUrl）
+  String? get effectiveMediaUrl => mediaUrl ?? videoUrl;
 }
 
 /// 任务状态数据类
@@ -460,7 +490,9 @@ class TaskStatus {
   final String sessionId;
   final String status;
   final String? videoUrl;
+  final String? mediaUrl; // 新增：统一的媒体URL
   final String? outputPath;
+  final String? outputType; // 新增：输出类型
   final String? errorMessage;
   final double? executionTime;
 
@@ -469,7 +501,9 @@ class TaskStatus {
     required this.sessionId,
     required this.status,
     this.videoUrl,
+    this.mediaUrl,
     this.outputPath,
+    this.outputType,
     this.errorMessage,
     this.executionTime,
   });
@@ -480,7 +514,9 @@ class TaskStatus {
       sessionId: json['session_id'],
       status: json['status'],
       videoUrl: json['video_url'],
+      mediaUrl: json['media_url'],
       outputPath: json['output_path'],
+      outputType: json['output_type'],
       errorMessage: json['error_message'],
       executionTime: json['execution_time']?.toDouble(),
     );
@@ -489,4 +525,11 @@ class TaskStatus {
   bool get isCompleted => status == 'completed';
   bool get isFailed => status == 'failed';
   bool get isRunning => status == 'running' || status == 'pending';
+
+  // 判断是否为图片
+  bool get isImage => outputType == 'image';
+  // 判断是否为视频
+  bool get isVideo => outputType == 'video' || outputType == null;
+  // 获取媒体URL（优先使用mediaUrl，fallback到videoUrl）
+  String? get effectiveMediaUrl => mediaUrl ?? videoUrl;
 }
