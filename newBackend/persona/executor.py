@@ -6,8 +6,8 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from ..core.video_operation_executor import VideoOperationExecutor
-from .manager import PersonaManager
+from core.video_operation_executor import VideoOperationExecutor
+from persona.manager import PersonaManager
 
 logger = logging.getLogger(__name__)
 

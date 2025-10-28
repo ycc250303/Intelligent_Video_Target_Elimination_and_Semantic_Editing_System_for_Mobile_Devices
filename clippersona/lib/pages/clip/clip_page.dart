@@ -334,13 +334,20 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
 
         if (taskStatus.isCompleted) {
           print('✅ 任务完成！outputPath: ${taskStatus.outputPath}');
-          if (taskStatus.videoUrl != null && taskStatus.videoUrl!.isNotEmpty) {
-            print('📹 开始下载视频: ${taskStatus.videoUrl}');
-            // 下载视频
-            _downloadAndShowVideo(taskStatus.videoUrl!, messageId);
+          print('   outputType: ${taskStatus.outputType}');
+
+          final mediaUrl = taskStatus.effectiveMediaUrl;
+          if (mediaUrl != null && mediaUrl.isNotEmpty) {
+            print('📹 开始下载媒体 (${taskStatus.outputType}): $mediaUrl');
+            // 根据类型下载媒体（图片或视频）
+            _downloadAndShowMedia(
+              mediaUrl: mediaUrl,
+              messageId: messageId,
+              isImage: taskStatus.isImage,
+            );
           } else {
-            // videoUrl为空 → 可能是不支持的操作或解析失败
-            print('⚠️ 任务完成但videoUrl为空');
+            // mediaUrl为空 → 可能是不支持的操作或解析失败
+            print('⚠️ 任务完成但mediaUrl为空');
             print('   outputPath: ${taskStatus.outputPath}');
 
             // 给用户更友好的提示
@@ -373,38 +380,53 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
 
   /// 处理同步返回的结果
   void _handleProcessResult(ProcessResult result, String messageId) async {
-    if (result.videoUrl != null) {
-      _downloadAndShowVideo(result.videoUrl!, messageId);
+    final mediaUrl = result.effectiveMediaUrl;
+    if (mediaUrl != null) {
+      _downloadAndShowMedia(
+        mediaUrl: mediaUrl,
+        messageId: messageId,
+        isImage: result.isImage,
+      );
     } else {
       _updateBotMessage(messageId, result.response ?? '处理完成');
     }
   }
 
-  /// 下载并显示处理后的视频
-  void _downloadAndShowVideo(String videoUrl, String messageId) async {
+  /// 下载并显示处理后的媒体（图片或视频）
+  void _downloadAndShowMedia({
+    required String mediaUrl,
+    required String messageId,
+    required bool isImage,
+  }) async {
     try {
-      _updateBotMessage(messageId, '正在下载处理后的视频...');
+      final mediaType = isImage ? '图片' : '视频';
+      _updateBotMessage(messageId, '正在下载处理后的$mediaType...');
 
       final localPath = await BackendSessionService.downloadVideo(
-        videoUrl: videoUrl,
+        videoUrl: mediaUrl,
       );
 
       if (localPath != null) {
-        // 生成视频缩略图
+        print('✅ $mediaType下载成功: $localPath');
+
         String? thumbnailPath;
-        try {
-          print('📸 生成视频缩略图: $localPath');
-          final tempDir = await getTemporaryDirectory();
-          thumbnailPath = await VideoThumbnail.thumbnailFile(
-            video: localPath,
-            thumbnailPath: tempDir.path,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 400,
-            quality: 75,
-          );
-          print('✅ 缩略图已生成: $thumbnailPath');
-        } catch (e) {
-          print('⚠️ 生成缩略图失败: $e');
+
+        // 只有视频需要生成缩略图
+        if (!isImage) {
+          try {
+            print('📸 生成视频缩略图: $localPath');
+            final tempDir = await getTemporaryDirectory();
+            thumbnailPath = await VideoThumbnail.thumbnailFile(
+              video: localPath,
+              thumbnailPath: tempDir.path,
+              imageFormat: ImageFormat.JPEG,
+              maxWidth: 400,
+              quality: 75,
+            );
+            print('✅ 缩略图已生成: $thumbnailPath');
+          } catch (e) {
+            print('⚠️ 生成缩略图失败: $e');
+          }
         }
 
         // 删除旧的处理中消息
@@ -415,35 +437,35 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
         });
         print('   删除后消息总数: ${_messages.length}');
 
-        // 添加包含视频和缩略图的消息
-        final botVideoMessageId =
-            'bot_video_${DateTime.now().millisecondsSinceEpoch}';
-        print('🎥 添加机器人视频消息，ID: $botVideoMessageId');
+        // 添加包含媒体的消息
+        final botMediaMessageId =
+            'bot_media_${DateTime.now().millisecondsSinceEpoch}';
+        print('📱 添加机器人$mediaType消息，ID: $botMediaMessageId');
         setState(() {
           _messages.add(
             Message.media(
-              id: botVideoMessageId,
-              content: '视频处理完成！',
-              type: MessageType.video,
+              id: botMediaMessageId,
+              content: '$mediaType${isImage ? "生成" : "处理"}完成！',
+              type: isImage ? MessageType.image : MessageType.video,
               sender: MessageSender.bot,
               mediaPath: localPath,
               thumbnailPath: thumbnailPath,
             ),
           );
 
-          // 🎯 自动将生成的视频添加到多模态输入栏（暂存区）
-          // 这样用户可以继续对这个视频进行操作
-          print('📥 将生成的视频自动添加到输入栏，路径: $localPath');
+          // 🎯 自动将生成的媒体添加到多模态输入栏（暂存区）
+          // 这样用户可以继续对这个媒体进行操作
+          print('📥 将生成的$mediaType自动添加到输入栏，路径: $localPath');
           _pendingMedia.add(
             MediaItem(
               path: localPath,
-              type: MediaType.video,
+              type: isImage ? MediaType.image : MediaType.video,
               thumbnailPath: thumbnailPath,
             ),
           );
-          print('✅ 视频已添加到暂存区，当前暂存媒体数: ${_pendingMedia.length}');
+          print('✅ $mediaType已添加到暂存区，当前暂存媒体数: ${_pendingMedia.length}');
         });
-        print('✅ 机器人视频消息已添加，当前消息总数: ${_messages.length}');
+        print('✅ 机器人$mediaType消息已添加，当前消息总数: ${_messages.length}');
 
         _scrollToBottom();
         _saveMessages();
@@ -1018,11 +1040,16 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // 判断是否有活跃的会话
+    final bool hasActiveSession = _currentProjectId != null;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: ClipAppBar(
         onHistoryTap: _toggleHistory,
         onNewConversationTap: _createNewConversation,
+        // 有会话时显示"新会话"，无会话时显示默认的"剪辑"
+        title: hasActiveSession ? '新会话' : null,
       ),
       body: Stack(
         children: [
@@ -1038,18 +1065,21 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
                   userAvatarPath: _userAvatarPath,
                 ),
               ),
-              // 媒体预览栏（暂存区）
-              MediaPreviewBar(
-                mediaItems: _pendingMedia,
-                onClear: _clearPendingMedia,
-                onRemoveItem: _removePendingMedia,
-              ),
-              // 输入框
-              ChatInput(
-                onSendMessage: _sendMessage,
-                onImagePick: _onImagePick,
-                onVideoPick: _onVideoPick,
-              ),
+              // 只有在有活跃会话时才显示媒体预览栏和输入框
+              if (hasActiveSession) ...[
+                // 媒体预览栏（暂存区）
+                MediaPreviewBar(
+                  mediaItems: _pendingMedia,
+                  onClear: _clearPendingMedia,
+                  onRemoveItem: _removePendingMedia,
+                ),
+                // 输入框
+                ChatInput(
+                  onSendMessage: _sendMessage,
+                  onImagePick: _onImagePick,
+                  onVideoPick: _onVideoPick,
+                ),
+              ],
             ],
           ),
           // 历史对话侧边栏
