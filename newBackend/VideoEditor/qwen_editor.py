@@ -202,21 +202,43 @@ class QwenVideoEditor:
             str: 生成的视频本地路径，如果失败返回None
         """
         if prompt is None or prompt == "":
+            print("❌ 错误: 文本提示词为空")
             return None
-        print('please wait...')
-        rsp = VideoSynthesis.async_call(api_key=self.api_key,
-                                        model=model,
-                                        prompt=prompt,
-                                        prompt_extend=True,
-                                        size=size,
-                                        negative_prompt="",
-                                        watermark=False,
-                                        seed=12345)
-
-        video_url = self.run_async_video_task(rsp)
-        if video_url:
-            return self.download_video(video_url, self.base_dir)
-        return None
+        
+        print(f'🎬 开始文生视频，提示词: {prompt[:50]}...')
+        print(f'   模型: {model}, 尺寸: {size}')
+        
+        try:
+            rsp = VideoSynthesis.async_call(api_key=self.api_key,
+                                            model=model,
+                                            prompt=prompt,
+                                            prompt_extend=True,
+                                            size=size,
+                                            negative_prompt="",
+                                            watermark=False,
+                                            seed=12345)
+            
+            print(f'✅ API调用成功，等待视频生成...')
+            video_url = self.run_async_video_task(rsp)
+            
+            if video_url:
+                print(f'✅ 视频生成成功，URL: {video_url}')
+                local_path = self.download_video(video_url, self.base_dir)
+                if local_path:
+                    print(f'✅ 视频下载完成: {local_path}')
+                    return local_path
+                else:
+                    print(f'❌ 视频下载失败')
+                    return None
+            else:
+                print(f'❌ 视频生成失败，未获取到视频URL')
+                return None
+                
+        except Exception as e:
+            print(f'❌ 文生视频异常: {str(e)}')
+            import traceback
+            traceback.print_exc()
+            return None
 
     def make_video_by_first_frame_and_template(self,img_url,template,model='wanx2.1-i2v-plus',resolution="720P"):
         """

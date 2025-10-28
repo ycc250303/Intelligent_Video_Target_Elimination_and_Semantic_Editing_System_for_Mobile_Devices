@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 外部存储根目录 -->
+    <external-path name="external_files" path="." />
+    
+    <!-- 应用私有外部存储 -->
+    <external-files-path name="external_app_files" path="." />
+    
+    <!-- 应用缓存目录 -->
+    <cache-path name="cache" path="." />
+    
+    <!-- 应用内部存储 -->
+    <files-path name="internal_files" path="." />
+    
+    <!-- 外部缓存目录 -->
+    <external-cache-path name="external_cache" path="." />
+</paths>
+

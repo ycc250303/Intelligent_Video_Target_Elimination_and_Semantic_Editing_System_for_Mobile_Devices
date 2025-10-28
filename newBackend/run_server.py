@@ -48,10 +48,41 @@ if __name__ == "__main__":
             print(f"  {', '.join(route.methods):12s} {route.path}")
     print()
     
+    # 配置uvicorn日志（禁用颜色避免Windows乱码）
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=8000,
-        log_level="info"
+        log_level="info",
+        # 禁用uvicorn的默认日志格式器，使用我们自己的
+        log_config={
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {
+                    "format": "%(asctime)s - %(levelname)s - %(message)s",
+                    "datefmt": "%Y-%m-%d %H:%M:%S",
+                },
+            },
+            "handlers": {
+                "default": {
+                    "formatter": "default",
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stdout",
+                },
+            },
+            "loggers": {
+                "uvicorn": {"handlers": ["default"], "level": "INFO"},
+                "uvicorn.error": {"level": "INFO"},
+                "uvicorn.access": {"handlers": ["default"], "level": "INFO"},
+            },
+        }
     )
 
