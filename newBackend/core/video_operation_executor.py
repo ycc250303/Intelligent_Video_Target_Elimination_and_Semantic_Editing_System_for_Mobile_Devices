@@ -176,29 +176,41 @@ class VideoOperationExecutor:
                 )
             
             # 执行操作
-            logger.info(f"执行操作: {operation_name}, 参数: {params}")
+            logger.info(f"执行操作: {operation_name}, 编辑器: {editor_type}, 参数: {params}")
             
             # 根据操作名称调用相应的方法
             result_path = self._call_editor_method(editor, operation_name, params)
             
-            if result_path and Path(result_path).exists():
-                execution_time = (datetime.now() - start_time).total_seconds()
-                
-                return OperationResult(
-                    success=True,
-                    output_path=result_path,
-                    operation_name=operation_name,
-                    execution_time=execution_time,
-                    metadata={
-                        "editor": editor_type,
-                        "params": params
-                    }
-                )
+            logger.info(f"操作 {operation_name} 返回结果: {result_path}")
+            
+            if result_path:
+                if Path(result_path).exists():
+                    execution_time = (datetime.now() - start_time).total_seconds()
+                    logger.info(f"✅ 操作成功: {operation_name}, 输出: {result_path}, 耗时: {execution_time:.2f}秒")
+                    
+                    return OperationResult(
+                        success=True,
+                        output_path=result_path,
+                        operation_name=operation_name,
+                        execution_time=execution_time,
+                        metadata={
+                            "editor": editor_type,
+                            "params": params
+                        }
+                    )
+                else:
+                    logger.error(f"❌ 操作失败: 返回路径不存在 {result_path}")
+                    return OperationResult(
+                        success=False,
+                        operation_name=operation_name,
+                        error_message=f"操作执行失败：返回路径不存在 {result_path}"
+                    )
             else:
+                logger.error(f"❌ 操作失败: {operation_name} 返回空路径")
                 return OperationResult(
                     success=False,
                     operation_name=operation_name,
-                    error_message="操作执行失败：输出文件未生成"
+                    error_message=f"操作执行失败：{operation_name} 方法返回空路径或None"
                 )
                 
         except Exception as e:

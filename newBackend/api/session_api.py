@@ -69,6 +69,17 @@ class ProcessTaskRequest(BaseModel):
 session_app = FastAPI(title="会话管理 API")
 
 
+@session_app.get("/")
+async def root():
+    """根路径 - API状态检查"""
+    return {
+        "status": "ok",
+        "message": "CoEdit 后端服务运行中",
+        "api_docs": "/docs",
+        "version": "1.0.0"
+    }
+
+
 @session_app.post("/sessions/create")
 async def create_session(request: CreateSessionRequest):
     """
@@ -87,10 +98,12 @@ async def create_session(request: CreateSessionRequest):
             icon=request.icon
         )
         
+        session_dict = session.to_dict()
         return {
             "status": "success",
             "message": "会话创建成功",
-            "session": session.to_dict()
+            "session_id": session_dict["id"],  # 添加顶层 session_id 方便访问
+            "session": session_dict             # 保留完整对象用于详细信息
         }
     except Exception as e:
         logger.exception("创建会话失败")
@@ -370,8 +383,8 @@ async def process_multimodal_in_session(
             output_path = None
             video_url = None
             
-            # 2. 如果解析成功且有视频，执行视频操作
-            if result.get("success") and result.get("action") and video_path:
+            # 2. 如果解析成功且有action，执行视频操作（文生视频不需要video_path）
+            if result.get("success") and result.get("action"):
                 try:
                     import json
                     action_content = result.get("action", "")
@@ -382,12 +395,15 @@ async def process_multimodal_in_session(
                     
                     # 解析JSON操作指令
                     operation_json = json.loads(action_content)
+                    logger.info(f"🎬 执行视频操作: {operation_json}")
                     
-                    # 执行视频操作
+                    # 执行视频操作（对于文生视频，input_video可以为None）
                     exec_result = video_executor.execute_from_json(
                         operation_json,
-                        input_video=video_path
+                        input_video=video_path  # 对于make_video_by_text等操作，这个可以是None
                     )
+                    
+                    logger.info(f"执行结果: success={exec_result.success}, output_path={exec_result.output_path}, error={exec_result.error_message}")
                     
                     if exec_result.success and exec_result.output_path:
                         output_path = exec_result.output_path
@@ -398,8 +414,10 @@ async def process_multimodal_in_session(
                         # 修正：移除/api/v2前缀
                         video_url = f"/media/{relative_path.replace(os.sep, '/')}"
                         
-                        logger.info(f"视频处理成功: {output_path}")
-                        logger.info(f"可访问URL: {video_url}")
+                        logger.info(f"✅ 视频处理成功: {output_path}")
+                        logger.info(f"✅ 可访问URL: {video_url}")
+                    else:
+                        logger.error(f"❌ 视频处理失败: {exec_result.error_message}")
                     
                     # 更新结果
                     result["execution"] = {
@@ -412,7 +430,9 @@ async def process_multimodal_in_session(
                     }
                     
                 except Exception as e:
-                    logger.error(f"执行视频操作失败: {e}")
+                    logger.error(f"❌ 执行视频操作异常: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                     result["execution"] = {
                         "success": False,
                         "error_message": f"执行操作失败: {str(e)}"
@@ -476,6 +496,7 @@ async def process_multimodal_in_session(
             
             return {
                 "status": "success",
+                "message": "处理完成",  # 添加 message 字段
                 "modal_type": result.get("modal_type", "text"),
                 "response": result.get("response", ""),
                 "action": result.get("action"),
