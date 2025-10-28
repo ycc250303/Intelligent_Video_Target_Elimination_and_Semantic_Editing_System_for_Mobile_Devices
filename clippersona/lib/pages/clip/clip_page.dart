@@ -157,41 +157,51 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     }).toList();
 
     // 根据内容类型发送不同的消息
+    final userMessageId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+
     if (_pendingMedia.isNotEmpty && text.trim().isNotEmpty) {
       // 多模态消息：文本 + 媒体
+      print(
+        '📝 添加用户多模态消息: "$text" + ${mediaList.length}个媒体, ID: $userMessageId',
+      );
       setState(() {
         _messages.add(
           Message.multimodal(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            id: userMessageId,
             content: text,
             sender: MessageSender.user,
             mediaList: mediaList,
           ),
         );
       });
+      print('✅ 用户消息已添加，当前消息总数: ${_messages.length}');
     } else if (_pendingMedia.isNotEmpty) {
       // 仅媒体消息
+      print('📝 添加用户仅媒体消息: ${mediaList.length}个媒体, ID: $userMessageId');
       setState(() {
         _messages.add(
           Message.multimodal(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            id: userMessageId,
             content: '',
             sender: MessageSender.user,
             mediaList: mediaList,
           ),
         );
       });
+      print('✅ 用户消息已添加，当前消息总数: ${_messages.length}');
     } else {
       // 仅文本消息
+      print('📝 添加用户纯文本消息: "$text", ID: $userMessageId');
       setState(() {
         _messages.add(
           Message.text(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            id: userMessageId,
             content: text,
             sender: MessageSender.user,
           ),
         );
       });
+      print('✅ 用户消息已添加，当前消息总数: ${_messages.length}');
     }
 
     // 清空暂存区
@@ -212,8 +222,11 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   /// 使用后端API处理用户输入
   void _processWithBackend(String text, List<MessageMedia> mediaList) async {
     // 1. 显示"处理中"状态
-    final processingMessageId = DateTime.now().millisecondsSinceEpoch
-        .toString();
+    // 延迟1ms确保ID不与用户消息冲突
+    await Future.delayed(const Duration(milliseconds: 1));
+    final processingMessageId = 'bot_${DateTime.now().millisecondsSinceEpoch}';
+
+    print('🤖 添加机器人"处理中"消息，ID: $processingMessageId');
     setState(() {
       _messages.add(
         Message.text(
@@ -223,6 +236,7 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
         ),
       );
     });
+    print('✅ 机器人消息已添加，当前消息总数: ${_messages.length}');
     _scrollToBottom();
     _saveMessages();
 
@@ -325,12 +339,12 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
             // 下载视频
             _downloadAndShowVideo(taskStatus.videoUrl!, messageId);
           } else {
+            // videoUrl为空 → 可能是不支持的操作或解析失败
             print('⚠️ 任务完成但videoUrl为空');
             print('   outputPath: ${taskStatus.outputPath}');
-            _updateBotMessage(
-              messageId,
-              '视频处理完成，但未返回结果\noutputPath: ${taskStatus.outputPath ?? "null"}',
-            );
+
+            // 给用户更友好的提示
+            _updateBotMessage(messageId, '抱歉，当前系统暂不支持此操作');
           }
           return;
         } else if (taskStatus.isFailed) {
@@ -394,15 +408,21 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
         }
 
         // 删除旧的处理中消息
+        print('🗑️ 删除"处理中"消息，ID: $messageId');
+        print('   删除前消息总数: ${_messages.length}');
         setState(() {
           _messages.removeWhere((msg) => msg.id == messageId);
         });
+        print('   删除后消息总数: ${_messages.length}');
 
         // 添加包含视频和缩略图的消息
+        final botVideoMessageId =
+            'bot_video_${DateTime.now().millisecondsSinceEpoch}';
+        print('🎥 添加机器人视频消息，ID: $botVideoMessageId');
         setState(() {
           _messages.add(
             Message.media(
-              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              id: botVideoMessageId,
               content: '视频处理完成！',
               type: MessageType.video,
               sender: MessageSender.bot,
@@ -410,7 +430,20 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
               thumbnailPath: thumbnailPath,
             ),
           );
+
+          // 🎯 自动将生成的视频添加到多模态输入栏（暂存区）
+          // 这样用户可以继续对这个视频进行操作
+          print('📥 将生成的视频自动添加到输入栏，路径: $localPath');
+          _pendingMedia.add(
+            MediaItem(
+              path: localPath,
+              type: MediaType.video,
+              thumbnailPath: thumbnailPath,
+            ),
+          );
+          print('✅ 视频已添加到暂存区，当前暂存媒体数: ${_pendingMedia.length}');
         });
+        print('✅ 机器人视频消息已添加，当前消息总数: ${_messages.length}');
 
         _scrollToBottom();
         _saveMessages();
@@ -424,15 +457,19 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
 
   /// 更新机器人消息内容
   void _updateBotMessage(String messageId, String newContent) {
+    print('📝 更新机器人消息，ID: $messageId, 新内容: "$newContent"');
     setState(() {
       final index = _messages.indexWhere((msg) => msg.id == messageId);
       if (index != -1) {
+        print('   找到消息索引: $index');
         _messages[index] = Message.text(
           id: messageId,
           content: newContent,
           sender: MessageSender.bot,
           timestamp: _messages[index].timestamp,
         );
+      } else {
+        print('   ⚠️ 未找到消息！当前消息总数: ${_messages.length}');
       }
     });
     _saveMessages();

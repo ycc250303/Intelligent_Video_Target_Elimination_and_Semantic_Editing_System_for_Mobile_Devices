@@ -443,7 +443,20 @@ async def process_multimodal_in_session(
             
             # 3. 添加助手回复到会话
             assistant_content = result.get("response", "")
-            if output_path:
+            
+            # 检查是否实际执行了操作
+            if not result.get("action") or result.get("action") == "None":
+                # 千问无法理解/不支持该操作
+                logger.warning(f"⚠️ 千问无法解析操作，action为空或None")
+                assistant_content = (
+                    "抱歉，我还不太理解这个操作。\n\n"
+                    "您可以尝试：\n"
+                    "• 裁剪视频（如\"裁剪前5秒\"）\n"
+                    "• 调整速度（如\"加速2倍\"）\n"
+                    "• 生成视频（纯文本或图片+文本）\n"
+                    "• 或者换一种表述方式"
+                )
+            elif output_path:
                 assistant_content += f"\n\n视频已处理完成！"
             
             session_manager.add_message_to_session(
