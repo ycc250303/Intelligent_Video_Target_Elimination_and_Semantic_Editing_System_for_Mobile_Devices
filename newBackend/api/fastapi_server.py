@@ -20,7 +20,7 @@ except Exception:  # 兼容无 netifaces 场景
 from core.qwen_nlp_parser import DialogueManager
 from config.config import OPERATIONS
 from VideoEditor.ffmpeg_editor import FFmpegVideoEditor
-from core.video_operation_executor import VideoOperationExecutor
+from persona.executor import PersonaAwareVideoOperationExecutor
 from core.multimodal_processor import MultimodalProcessor
 
 
@@ -81,7 +81,7 @@ dialogue_manager = DialogueManager()
 from pathlib import Path
 _project_root = Path(__file__).parent.parent.parent
 _data_results_dir = _project_root / "data" / "results"
-video_executor = VideoOperationExecutor(output_dir=str(_data_results_dir))
+video_executor = PersonaAwareVideoOperationExecutor(output_dir=str(_data_results_dir))
 # 多模态处理器实例
 multimodal_processor = MultimodalProcessor()
 
@@ -637,5 +637,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n启动服务器时出错: {e}")
         print("请检查端口 8000 是否被占用")
-
 

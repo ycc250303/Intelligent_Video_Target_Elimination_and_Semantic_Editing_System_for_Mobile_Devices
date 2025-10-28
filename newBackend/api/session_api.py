@@ -21,7 +21,7 @@ from core.session_manager import (
 )
 from core.concurrent_task_executor import task_executor, TaskStatus
 from core.qwen_nlp_parser import DialogueManager
-from core.video_operation_executor import VideoOperationExecutor
+from persona.executor import PersonaAwareVideoOperationExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 from pathlib import Path
 _project_root = Path(__file__).parent.parent.parent
 _data_results_dir = _project_root / "data" / "results"
-video_executor = VideoOperationExecutor(output_dir=str(_data_results_dir))
+video_executor = PersonaAwareVideoOperationExecutor(output_dir=str(_data_results_dir))
 
 
 # Pydantic 模型用于请求验证
@@ -796,5 +796,4 @@ async def serve_media_file(path: str, request: Request):
     except Exception as e:
         logger.exception("访问媒体文件失败")
         raise HTTPException(status_code=500, detail=str(e))
-
 

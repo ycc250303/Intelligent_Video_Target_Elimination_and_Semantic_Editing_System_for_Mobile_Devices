@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # 导入现有的服务器
 from api.fastapi_server import app as video_app
 from api.session_api import session_app
+from api.persona_api import persona_app
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,13 +43,15 @@ def root():
             "多会话管理",
             "并发任务处理",
             "多模态输入支持",
-            "视频智能编辑"
+            "视频智能编辑",
+            "用户剪辑人格建模"
         ],
         "api_groups": {
             "sessions": "/sessions/* - 会话管理API",
             "tasks": "/tasks/* - 任务管理API",
             "video": "/upload-video, /process-video - 视频处理API（兼容旧版）",
-            "executor": "/executor/* - 执行器统计API"
+            "executor": "/executor/* - 执行器统计API",
+            "persona": "/persona/* - 用户人格与推荐API"
         },
         "documentation": "/docs"
     }
@@ -56,6 +59,8 @@ def root():
 
 # 挂载会话管理API
 app.mount("/api/v2", session_app)
+# 挂载人格服务API
+app.mount("/api/persona", persona_app)
 
 # 注意：原有的video_app端点可以直接集成到这里
 # 或者继续使用原有的fastapi_server.py
@@ -115,5 +120,4 @@ if __name__ == "__main__":
         reload=False,
         log_level="info"
     )
-
 
