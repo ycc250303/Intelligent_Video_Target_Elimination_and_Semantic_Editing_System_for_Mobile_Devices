@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:gal/gal.dart';
 import '../../../config/app_locales.dart';
 
 /// 视频播放器全屏页面
@@ -18,6 +19,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   bool _isInitialized = false;
   bool _hasError = false;
   bool _showControls = true;
+  bool _isDownloading = false;
 
   @override
   void initState() {
@@ -70,6 +72,69 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     return '$minutes:$seconds';
   }
 
+  /// 下载视频到相册
+  Future<void> _downloadVideo() async {
+    setState(() {
+      _isDownloading = true;
+    });
+
+    try {
+      print('📥 开始下载视频: ${widget.videoPath}');
+
+      // 使用Gal保存到相册
+      await Gal.putVideo(widget.videoPath);
+
+      print('✅ 视频已保存到相册');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text('视频已保存到相册', style: TextStyle(fontSize: 16)),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ 保存视频失败: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '保存失败: ${e.toString()}',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -85,6 +150,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           appLocales.playVideo,
           style: const TextStyle(color: Colors.white),
         ),
+        actions: [
+          // 下载按钮
+          IconButton(
+            icon: _isDownloading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Icon(Icons.download, color: Colors.white),
+            onPressed: _isDownloading ? null : _downloadVideo,
+            tooltip: '下载到相册',
+          ),
+        ],
       ),
       body: _buildBody(),
     );
