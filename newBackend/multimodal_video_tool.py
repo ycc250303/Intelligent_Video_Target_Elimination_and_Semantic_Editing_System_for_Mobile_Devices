@@ -14,7 +14,8 @@ from typing import Optional, List
 # 添加当前目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core import DialogueManager, VideoOperationExecutor
+from core import DialogueManager
+from persona.executor import PersonaAwareVideoOperationExecutor
 
 
 class MultimodalVideoTool:
@@ -28,7 +29,7 @@ class MultimodalVideoTool:
             output_dir: 输出目录
         """
         self.manager = DialogueManager()
-        self.executor = VideoOperationExecutor(output_dir=output_dir)
+        self.executor = PersonaAwareVideoOperationExecutor(output_dir=output_dir)
         self.output_dir = output_dir
         
         print(f"✅ 工具初始化完成")
@@ -401,4 +402,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -1,3 +1,6 @@
 # 项目数据文件夹 - 包含会话数据、上传的视频、处理结果等
 data/
 newBackend/data
+.idea/
+.DS_Store
+*.pyc
