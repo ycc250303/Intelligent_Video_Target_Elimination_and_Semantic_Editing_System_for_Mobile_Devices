@@ -74,9 +74,10 @@ class QwenVideoEditor:
             str: 生成的视频URL，如果失败返回None
         """
         if rsp.status_code != HTTPStatus.OK:
-            print(f"Failed, status_code: {rsp.status_code}, code: {rsp.code}, message: {rsp.message}")
+            print(f"❌ API调用失败, status_code: {rsp.status_code}, code: {rsp.code}, message: {rsp.message}")
             return None
         
+        print("✅ API调用成功，等待视频生成...")
         print("task_id:", rsp.output.task_id)
 
         # 获取异步任务状态
@@ -84,18 +85,19 @@ class QwenVideoEditor:
         if status.status_code == HTTPStatus.OK:
             print("task_status:", status.output.task_status)
         else:
-            print(f"Fetch failed, status_code: {status.status_code}, code: {status.code}, message: {status.message}")
+            print(f"❌ 获取状态失败, status_code: {status.status_code}, code: {status.code}, message: {status.message}")
             return None
 
         # 等待异步任务结束
         final_rsp = VideoSynthesis.wait(rsp)
-        print(final_rsp)
+        # 优化：只打印关键信息，不打印完整响应（太冗长）
+        # print(final_rsp)  # 注释掉完整响应打印
 
         if final_rsp.status_code == HTTPStatus.OK:
-            print("video_url:", final_rsp.output.video_url)
+            print("✅ 视频生成成功，URL:", final_rsp.output.video_url)
             return final_rsp.output.video_url
         else:
-            print(f"Wait failed, status_code: {final_rsp.status_code}, code: {final_rsp.code}, message: {final_rsp.message}")
+            print(f"❌ 等待失败, status_code: {final_rsp.status_code}, code: {final_rsp.code}, message: {final_rsp.message}")
             return None
 
     def download_video(self,video_url, save_dir, filename=None):
@@ -116,16 +118,18 @@ class QwenVideoEditor:
 
         save_path = os.path.join(save_dir, filename)
 
-        print(f"正在下载视频: {video_url}")
+        # 简化URL显示（只显示关键部分）
+        display_url = video_url.split("?")[0].split("/")[-1]
+        print(f"正在下载视频: {display_url}")
         rsp = requests.get(video_url, stream=True)
         if rsp.status_code == 200:
             with open(save_path, "wb") as f:
                 for chunk in rsp.iter_content(chunk_size=8192):
                     f.write(chunk)
-            print(f"下载完成: {save_path}")
+            print(f"✅ 视频下载完成: {save_path}")
             return save_path
         else:
-            print(f"下载失败，状态码: {rsp.status_code}")
+            print(f"❌ 下载失败，状态码: {rsp.status_code}")
             return None
 
     def make_video_by_first_frame(self,img_url, prompt,model='wan2.2-i2v-flash',resolution="1080P"):

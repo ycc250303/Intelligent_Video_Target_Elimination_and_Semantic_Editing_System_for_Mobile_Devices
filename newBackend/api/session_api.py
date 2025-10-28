@@ -285,8 +285,8 @@ async def process_multimodal_in_session(
     session_id: str = Form(...),
     text: str = Form(...),
     video: Optional[UploadFile] = File(None),
-    images: Optional[List[UploadFile]] = File(None),
-    execute_async: bool = Form(False)
+    images: List[UploadFile] = File(default=[]),  # 修改：使用默认空列表而不是None
+    execute_async: str = Form("false")  # 修改为字符串类型，前端发送的是 "true"/"false"
 ):
     """
     在会话中处理多模态输入
@@ -370,8 +370,9 @@ async def process_multimodal_in_session(
             output_path = None
             video_url = None
             
-            # 2. 如果解析成功且有视频，执行视频操作
-            if result.get("success") and result.get("action") and video_path:
+            # 2. 如果解析成功，执行视频操作
+            # 注意：文生视频类操作（make_video_by_text等）不需要input_video
+            if result.get("success") and result.get("action"):
                 try:
                     import json
                     action_content = result.get("action", "")
@@ -383,10 +384,12 @@ async def process_multimodal_in_session(
                     # 解析JSON操作指令
                     operation_json = json.loads(action_content)
                     
-                    # 执行视频操作
+                    logger.info(f"🎬 执行视频操作: {operation_json}")
+                    
+                    # 执行视频操作（video_path可能为None，对于文生视频操作）
                     exec_result = video_executor.execute_from_json(
                         operation_json,
-                        input_video=video_path
+                        input_video=video_path  # 文生视频时为None也没问题
                     )
                     
                     if exec_result.success and exec_result.output_path:
@@ -448,8 +451,11 @@ async def process_multimodal_in_session(
             
             return result
         
-        # 如果是异步执行
-        if execute_async:
+        # 如果是异步执行（将字符串转换为布尔值）
+        is_async = execute_async.lower() in ('true', '1', 'yes')
+        logger.info(f"处理多模态输入: {'text' if text else 'no-text'}")
+        
+        if is_async:
             task_id = task_executor.submit_task(
                 session_id=session_id,
                 task_func=process_task,

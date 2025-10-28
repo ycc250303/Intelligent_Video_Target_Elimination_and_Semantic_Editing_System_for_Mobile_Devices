@@ -294,15 +294,41 @@ class BackendSessionService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
-        print('处理成功: $data');
+        print('✅ 后端处理成功');
         return ProcessResult.fromJson(data);
       } else {
-        print('处理失败: ${response.statusCode} - ${response.body}');
-        return null;
+        // 详细记录错误信息
+        print('❌ 后端处理失败:');
+        print('   状态码: ${response.statusCode}');
+        print('   响应体: ${response.body}');
+
+        // 解析错误详情
+        String errorMessage = '处理失败';
+        try {
+          final errorData = jsonDecode(response.body);
+          if (errorData.containsKey('detail')) {
+            errorMessage = '${response.statusCode} - ${errorData['detail']}';
+          } else {
+            errorMessage = '${response.statusCode} - ${response.body}';
+          }
+        } catch (_) {
+          errorMessage = '${response.statusCode} - ${response.body}';
+        }
+
+        // 返回包含错误信息的ProcessResult
+        return ProcessResult(
+          success: false,
+          response: '',
+          errorMessage: errorMessage,
+        );
       }
     } catch (e) {
-      print('处理多模态输入失败: $e');
-      return null;
+      print('❌ 处理多模态输入异常: $e');
+      return ProcessResult(
+        success: false,
+        response: '',
+        errorMessage: '网络错误: $e',
+      );
     }
   }
 
