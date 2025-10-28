@@ -3,3 +3,4 @@ data/
 newBackend/data
 .idea/
 .DS_Store
+*.pyc
