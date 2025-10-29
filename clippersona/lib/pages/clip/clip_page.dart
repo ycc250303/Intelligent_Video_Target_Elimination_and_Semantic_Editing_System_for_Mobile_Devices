@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../models/message.dart';
 import '../../models/project_models.dart';
+import '../../models/recommendation.dart';
 import '../../services/project_service.dart';
 import '../../services/backend_session_service.dart';
 import '../../services/avatar_service.dart';
@@ -15,6 +16,7 @@ import 'widgets/chat_input.dart';
 import 'widgets/delete_dialog.dart';
 import 'widgets/clip_app_bar.dart';
 import 'widgets/media_preview_bar.dart';
+import 'widgets/recommendation_chips.dart';
 import 'sections/history_sidebar.dart';
 import 'sections/chat_messages_section.dart';
 
@@ -38,6 +40,11 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   String? _userAvatarPath; // 用户头像路径
   late AnimationController _historyAnimationController;
   late Animation<double> _historySlideAnimation;
+
+  // 🆕 智能推荐相关
+  List<Recommendation> _recommendations = [];
+  bool _showRecommendations = false;
+  List<WorkflowTemplate> _workflowTemplates = [];
 
   @override
   void initState() {
@@ -509,10 +516,30 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
 
   // 加载历史项目
   Future<void> _loadHistoryProjects() async {
-    final projects = await ProjectService.instance.getAllProjects();
-    setState(() {
-      _historyProjects = projects;
-    });
+    print('📥 加载历史项目...');
+
+    // 🆕 优先从后端加载最新数据
+    final backendProjects = await BackendSessionService.loadAllSessions();
+
+    if (backendProjects.isNotEmpty) {
+      print('✅ 从后端加载了 ${backendProjects.length} 个会话');
+
+      // 同步到本地存储
+      for (final project in backendProjects) {
+        await ProjectService.instance.saveProject(project);
+      }
+
+      setState(() {
+        _historyProjects = backendProjects;
+      });
+    } else {
+      // 降级方案：从本地加载
+      print('⚠️ 后端加载失败，从本地加载');
+      final localProjects = await ProjectService.instance.getAllProjects();
+      setState(() {
+        _historyProjects = localProjects;
+      });
+    }
   }
 
   // 切换历史侧边栏
@@ -565,13 +592,99 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
 
   // 进入历史对话
   Future<void> _enterHistoryConversation(Project project) async {
-    setState(() {
-      _currentProjectId = project.id;
-      _messages.clear();
-      _messages.addAll(project.messages);
-      _isHistoryOpen = false;
-    });
+    print('🔄 切换到会话: ${project.id}');
+
+    // 🆕 从后端重新加载最新会话数据
+    final latestProject = await BackendSessionService.getSession(project.id);
+
+    if (latestProject != null) {
+      print('✅ 从后端加载了最新会话数据，消息数: ${latestProject.messages.length}');
+
+      setState(() {
+        _currentProjectId = latestProject.id;
+        _messages.clear();
+        _messages.addAll(latestProject.messages);
+        _isHistoryOpen = false;
+      });
+
+      // 🆕 异步下载媒体文件（URL类型的路径）
+      _downloadMediaForMessages(latestProject.messages);
+
+      // 同步到本地
+      await ProjectService.instance.saveProject(latestProject);
+    } else {
+      // 降级方案：使用本地缓存的数据
+      print('⚠️ 后端加载失败，使用本地缓存');
+      setState(() {
+        _currentProjectId = project.id;
+        _messages.clear();
+        _messages.addAll(project.messages);
+        _isHistoryOpen = false;
+      });
+    }
+
     _scrollToBottom();
+  }
+
+  /// 🆕 为消息下载媒体文件（如果mediaPath是URL）
+  Future<void> _downloadMediaForMessages(List<Message> messages) async {
+    for (int i = 0; i < messages.length; i++) {
+      final message = messages[i];
+      
+      // 检查是否有mediaPath且是URL（以/media开头）
+      if (message.mediaPath != null && 
+          message.mediaPath!.startsWith('/media/')) {
+        print('📥 检测到URL媒体，准备下载: ${message.mediaPath}');
+        
+        // 下载媒体文件
+        try {
+          final localPath = await BackendSessionService.downloadVideo(
+            videoUrl: message.mediaPath!,
+          );
+          
+          if (localPath != null) {
+            print('✅ 媒体下载成功，本地路径: $localPath');
+            
+            // 🆕 为视频生成缩略图
+            String? thumbnailPath;
+            if (message.type == MessageType.video) {
+              try {
+                print('📸 生成视频缩略图: $localPath');
+                final tempDir = await getTemporaryDirectory();
+                thumbnailPath = await VideoThumbnail.thumbnailFile(
+                  video: localPath,
+                  thumbnailPath: tempDir.path,
+                  imageFormat: ImageFormat.JPEG,
+                  maxWidth: 400,
+                  quality: 75,
+                );
+                print('✅ 缩略图已生成: $thumbnailPath');
+              } catch (e) {
+                print('⚠️ 生成缩略图失败: $e');
+              }
+            }
+            
+            // 更新消息的mediaPath和thumbnailPath为本地路径
+            setState(() {
+              _messages[i] = Message.media(
+                id: message.id,
+                content: message.content,
+                type: message.type,
+                sender: message.sender,
+                mediaPath: localPath,
+                thumbnailPath: thumbnailPath,  // 🆕 添加缩略图
+                timestamp: message.timestamp,
+              );
+            });
+            
+            // 保存更新后的消息
+            _saveMessages();
+          }
+        } catch (e) {
+          print('⚠️ 下载媒体失败: $e');
+        }
+      }
+    }
   }
 
   // 删除历史对话
@@ -985,6 +1098,17 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
           );
         });
         print('✅ 视频已添加到暂存区');
+
+        // 🆕 获取智能推荐
+        _fetchRecommendations(
+          videoMetadata: {
+            'duration': 60, // 可以从视频文件读取实际时长
+            'category': 'video',
+          },
+        );
+
+        // 🆕 获取工作流模板
+        _fetchWorkflowTemplates();
       } else {
         print('❌ 未选择视频');
       }
@@ -1010,6 +1134,96 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
         );
       }
     }
+  }
+
+  /// 🆕 获取智能推荐
+  Future<void> _fetchRecommendations({
+    Map<String, dynamic>? videoMetadata,
+  }) async {
+    if (_currentProjectId == null) return;
+
+    try {
+      print('🎯 开始获取推荐...');
+      final recommendations = await BackendSessionService.getRecommendations(
+        sessionId: _currentProjectId!,
+        videoMetadata: videoMetadata,
+      );
+
+      if (recommendations.isNotEmpty && mounted) {
+        setState(() {
+          _recommendations = recommendations
+              .map((json) => Recommendation.fromJson(json))
+              .toList();
+          _showRecommendations = true;
+        });
+        print('✅ 显示 ${_recommendations.length} 条推荐');
+      }
+    } catch (e) {
+      print('❌ 获取推荐失败: $e');
+    }
+  }
+
+  /// 🆕 获取工作流模板
+  Future<void> _fetchWorkflowTemplates() async {
+    if (_currentProjectId == null) return;
+
+    try {
+      final templates = await BackendSessionService.getWorkflowTemplates(
+        sessionId: _currentProjectId!,
+      );
+
+      if (templates.isNotEmpty && mounted) {
+        setState(() {
+          _workflowTemplates = templates
+              .map((json) => WorkflowTemplate.fromJson(json))
+              .toList();
+        });
+        print('✅ 加载 ${_workflowTemplates.length} 个工作流模板');
+      }
+    } catch (e) {
+      print('❌ 获取工作流模板失败: $e');
+    }
+  }
+
+  /// 🆕 应用推荐操作
+  void _applyRecommendation(String action, String displayName) {
+    print('✨ 应用推荐: $action ($displayName)');
+
+    // 自动填充到输入框并发送
+    _sendMessage(displayName);
+
+    // 关闭推荐卡片
+    setState(() {
+      _showRecommendations = false;
+    });
+  }
+
+  /// 🆕 应用工作流模板
+  void _applyWorkflowTemplate(WorkflowTemplate template) {
+    print('⚡ 应用工作流: ${template.name}');
+
+    // 显示确认对话框
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('应用工作流：${template.name}'),
+        content: Text('将执行以下步骤：\n${template.stepsDisplay}\n\n确定要应用吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // 发送工作流描述
+              _sendMessage('按照工作流执行：${template.stepsDisplay}');
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _scrollToBottom() {
@@ -1043,6 +1257,9 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     // 判断是否有活跃的会话
     final bool hasActiveSession = _currentProjectId != null;
 
+    // 🔧 检测键盘是否弹出
+    final bool isKeyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: ClipAppBar(
@@ -1067,6 +1284,27 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
               ),
               // 只有在有活跃会话时才显示媒体预览栏和输入框
               if (hasActiveSession) ...[
+                // 🆕 智能推荐卡片（键盘弹出时隐藏）
+                if (!isKeyboardVisible &&
+                    _showRecommendations &&
+                    _recommendations.isNotEmpty)
+                  RecommendationChips(
+                    recommendations: _recommendations,
+                    onRecommendationTap: _applyRecommendation,
+                    onClose: () {
+                      setState(() {
+                        _showRecommendations = false;
+                      });
+                    },
+                  ),
+
+                // 🆕 工作流模板列表（键盘弹出时隐藏）
+                if (!isKeyboardVisible && _workflowTemplates.isNotEmpty)
+                  WorkflowTemplatesList(
+                    templates: _workflowTemplates,
+                    onTemplateTap: _applyWorkflowTemplate,
+                  ),
+
                 // 媒体预览栏（暂存区）
                 MediaPreviewBar(
                   mediaItems: _pendingMedia,

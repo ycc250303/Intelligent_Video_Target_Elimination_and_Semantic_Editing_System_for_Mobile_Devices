@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-集成API服务器
+集成API服务器（已弃用）
 整合原有的视频处理API和新的多会话管理API
+
+⚠️ 注意：此文件已弃用，请使用 run_server.py
+- run_server.py 使用统一的 /api/* 前缀
+- integrated_server.py 使用旧的 /api/v2/* 前缀（不兼容前端）
+
+推荐使用：python run_server.py
 """
 
 import logging
