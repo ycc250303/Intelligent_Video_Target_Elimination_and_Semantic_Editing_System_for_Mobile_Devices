@@ -71,16 +71,24 @@ session_app = FastAPI(title="会话管理 API")
 
 @session_app.get("/")
 async def root():
-    """根路径 - API状态检查"""
-    return {
-        "status": "ok",
-        "message": "CoEdit 后端服务运行中",
-        "api_docs": "/docs",
-        "version": "1.0.0"
-    }
+    """根路径 - 获取所有会话（单用户模式）"""
+    try:
+        sessions = session_manager.get_all_sessions()
+        sessions_dict = [session.to_dict() for session in sessions]
+        return {
+            "status": "ok",
+            "message": "CoEdit 后端服务运行中",
+            "sessions": sessions_dict,
+            "count": len(sessions_dict),
+            "api_docs": "/docs",
+            "version": "1.0.0"
+        }
+    except Exception as e:
+        logger.exception("获取会话列表失败")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@session_app.post("/sessions/create")
+@session_app.post("/create")
 async def create_session(request: CreateSessionRequest):
     """
     创建新会话（单用户模式）
@@ -110,7 +118,7 @@ async def create_session(request: CreateSessionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@session_app.get("/sessions/{session_id}")
+@session_app.get("/{session_id}")
 async def get_session(session_id: str):
     """
     获取会话详情
@@ -137,28 +145,8 @@ async def get_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@session_app.get("/sessions")
-async def get_all_sessions():
-    """
-    获取所有会话（单用户模式）
-    
-    Returns:
-        会话列表
-    """
-    try:
-        sessions = session_manager.get_all_sessions()
-        
-        return {
-            "status": "success",
-            "count": len(sessions),
-            "sessions": [s.to_dict() for s in sessions]
-        }
-    except Exception as e:
-        logger.exception("获取会话失败")
-        raise HTTPException(status_code=500, detail=str(e))
 
-
-@session_app.put("/sessions/update")
+@session_app.put("/update")
 async def update_session(request: UpdateSessionRequest):
     """
     更新会话信息
@@ -203,7 +191,7 @@ async def update_session(request: UpdateSessionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@session_app.delete("/sessions/all")
+@session_app.delete("/all")
 async def delete_all_sessions():
     """
     删除所有会话（单用户模式）
@@ -224,7 +212,7 @@ async def delete_all_sessions():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@session_app.delete("/sessions/{session_id}")
+@session_app.delete("/{session_id}")
 async def delete_session(session_id: str):
     """
     删除会话
@@ -255,7 +243,7 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@session_app.post("/sessions/add_message")
+@session_app.post("/add_message")
 async def add_message(request: AddMessageRequest):
     """
     向会话添加消息
@@ -293,7 +281,7 @@ async def add_message(request: AddMessageRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@session_app.post("/sessions/process-multimodal")
+@session_app.post("/process-multimodal")
 async def process_multimodal_in_session(
     session_id: str = Form(...),
     text: str = Form(...),
@@ -349,6 +337,20 @@ async def process_multimodal_in_session(
                         f.write(content)
                     image_paths.append(img_path)
         
+        # 🆕 为用户上传的媒体生成可访问的URL
+        user_media_url = None
+        if video_path:
+            # 将绝对路径转换为相对URL
+            # 例如: D:\...\data\sessions\xxx\uploads\video.mp4 
+            # -> /media/sessions/xxx/uploads/video.mp4
+            try:
+                import os
+                rel_path = os.path.relpath(video_path, str(_base_data_dir / "sessions"))
+                user_media_url = f"/media/sessions/{rel_path.replace(os.sep, '/')}"
+                logger.info(f"🔗 用户视频URL: {user_media_url}")
+            except Exception as e:
+                logger.warning(f"生成用户视频URL失败: {e}")
+        
         # 添加用户消息到会话
         user_msg = session_manager.add_message_to_session(
             session_id=session_id,
@@ -356,7 +358,11 @@ async def process_multimodal_in_session(
             message_type=MessageType.MULTIMODAL if (video_path or image_paths) else MessageType.TEXT,
             sender=MessageSender.USER,
             media_path=video_path,
-            metadata={"image_paths": image_paths}
+            metadata={
+                "image_paths": image_paths,
+                "media_url": user_media_url,  # 🆕 添加URL
+                "video_url": user_media_url   # 保持向后兼容
+            }
         )
         
         # 更新会话状态
@@ -369,13 +375,35 @@ async def process_multimodal_in_session(
         # 创建DialogueManager实例处理输入
         dialogue_manager = DialogueManager()
         
+        # 🆕 获取视频元数据（如时长）
+        video_metadata = None
+        if video_path:
+            try:
+                import subprocess
+                import shlex
+                input_ff = video_path.replace("\\", "/")
+                cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{input_ff}"'
+                result = subprocess.run(shlex.split(cmd), check=True, capture_output=True, text=True)
+                duration = float(result.stdout.strip())
+                video_metadata = {"duration": duration}
+                logger.info(f"📊 视频时长: {duration}秒")
+            except Exception as e:
+                logger.warning(f"获取视频时长失败: {e}")
+        
         # 定义任务函数
         def process_task():
             # 1. 先使用 DialogueManager 解析用户指令
             # 注意：对于大视频(>20MB)，只传递文本指令给千问，避免API错误
             # 视频文件路径会在后续视频编辑时使用
+            
+            # 🆕 如果有视频元数据，添加到文本提示中
+            enhanced_text = text
+            if video_metadata and video_metadata.get("duration"):
+                enhanced_text = f"{text}\n[视频时长: {video_metadata['duration']:.1f}秒]"
+                logger.info(f"🔧 增强后的文本: {enhanced_text}")
+            
             result = dialogue_manager.process_multimodal_input(
-                text=text,
+                text=enhanced_text,
                 image_paths=image_paths if image_paths else None,
                 video_paths=None  # 不传递视频路径给千问API，只解析文本指令
             )
@@ -636,7 +664,7 @@ async def get_task_status(task_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@session_app.get("/sessions/{session_id}/tasks")
+@session_app.get("/{session_id}/tasks")
 async def get_session_tasks(session_id: str):
     """
     获取会话的所有任务
@@ -747,6 +775,135 @@ def _parse_range(range_header: str, file_size: int) -> Tuple[int, int]:
     if byte1 > byte2 or byte2 >= file_size:
         raise HTTPException(status_code=416, detail="无效的Range请求")
     return byte1, byte2
+
+
+@session_app.post("/{session_id}/recommendations")
+async def get_session_recommendations(
+    session_id: str,
+    video_metadata: dict = {}
+):
+    """
+    获取基于用户人格的智能推荐操作
+    
+    Args:
+        session_id: 会话ID
+        video_metadata: 视频元数据（duration, category, aspect_ratio等）
+        
+    Returns:
+        推荐操作列表
+    """
+    try:
+        # 验证会话存在
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        
+        # 获取推荐（使用默认用户ID）
+        recommendations = video_executor.get_recommendations(
+            video_metadata=video_metadata,
+            user_id="default_user"
+        )
+        
+        logger.info(f"为会话 {session_id} 生成了 {len(recommendations)} 条推荐")
+        
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "count": len(recommendations),
+            "recommendations": recommendations
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("获取推荐失败")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@session_app.get("/{session_id}/persona")
+async def get_session_persona(session_id: str, refresh: bool = False):
+    """
+    获取用户的人格数据
+    
+    Args:
+        session_id: 会话ID
+        refresh: 是否强制重新训练人格模型
+        
+    Returns:
+        用户人格数据
+    """
+    try:
+        # 验证会话存在
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        
+        # 获取人格数据
+        persona = video_executor.get_persona(user_id="default_user", refresh=refresh)
+        
+        if not persona:
+            return {
+                "status": "success",
+                "has_persona": False,
+                "message": "人格数据尚未生成，需要更多操作记录（建议至少50次操作）",
+                "persona": None
+            }
+        
+        logger.info(f"返回人格数据，总操作数: {persona.get('total_operations', 0)}")
+        
+        return {
+            "status": "success",
+            "has_persona": True,
+            "persona": persona
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("获取人格数据失败")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@session_app.get("/{session_id}/workflow-templates")
+async def get_workflow_templates(session_id: str):
+    """
+    获取用户的常用工作流模板
+    
+    Args:
+        session_id: 会话ID
+        
+    Returns:
+        工作流模板列表
+    """
+    try:
+        # 验证会话存在
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        
+        # 获取人格数据
+        persona = video_executor.get_persona(user_id="default_user")
+        
+        if not persona:
+            return {
+                "status": "success",
+                "count": 0,
+                "templates": []
+            }
+        
+        # 提取工作流模板
+        templates = persona.get('workflow_templates', [])
+        
+        logger.info(f"返回 {len(templates)} 个工作流模板")
+        
+        return {
+            "status": "success",
+            "count": len(templates),
+            "templates": templates
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("获取工作流模板失败")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @session_app.get("/media/{path:path}")
