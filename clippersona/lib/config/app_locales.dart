@@ -99,8 +99,8 @@ class AppLocales {
       _getText('头像选择失败', 'Avatar selection failed');
 
   // ==================== 底部导航栏 ====================
-  String get navPersona => _getText('Persona', 'Persona');
-  String get navClip => _getText('剪辑', 'Clip');
+  String get navPersona => _getText('风格卡', 'Style Card');
+  String get navClip => _getText('工作台', 'Workspace');
   String get navCommunity => _getText('社区', 'Community');
   String get navSettings => _getText('设置', 'Settings');
 

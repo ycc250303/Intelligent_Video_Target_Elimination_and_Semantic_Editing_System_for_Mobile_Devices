@@ -18,9 +18,10 @@ class BackendSessionService {
   /// - Android模拟器：使用 10.0.2.2（模拟器访问主机的特殊IP）
   /// - iOS模拟器/浏览器：使用 localhost
   /// 简化版本：不再使用 /api/v2 前缀
-  static const String baseUrl = "http://100.80.59.113:8000"; // 真机 - 电脑WLAN IP
+  // static const String baseUrl = "http://localhost:8000"; // 🔌 USB调试 (adb reverse tcp:8000 tcp:8000)
+  static const String baseUrl =
+      "http://100.80.59.113:8000"; // 真机 - WLAN (校园网会失败)
   // static const String baseUrl = "http://10.0.2.2:8000"; // Android模拟器
-  // static const String baseUrl = "http://localhost:8000"; // iOS/浏览器
 
   /// 获取所有会话（单用户模式）
   ///

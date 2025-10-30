@@ -9,13 +9,13 @@ class ClipAppBar extends StatelessWidget implements PreferredSizeWidget {
     super.key,
     required this.onHistoryTap,
     required this.onNewConversationTap,
-    this.title, // 如果为null，使用默认标题"剪辑"
+    this.title, // 如果为null，使用默认标题"工作台"
   });
 
   @override
   Widget build(BuildContext context) {
     return AppBar(
-      title: Text(title ?? '剪辑'),
+      title: Text(title ?? '工作台'),
       centerTitle: true,
       foregroundColor: Colors.white,
       backgroundColor: Colors.transparent,

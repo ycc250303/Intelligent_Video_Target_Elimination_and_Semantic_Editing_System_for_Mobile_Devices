@@ -10,8 +10,14 @@ import 'video_player_screen.dart';
 class MessageBubble extends StatelessWidget {
   final Message message;
   final String? userAvatarPath; // 用户头像路径
+  final Function(String mediaPath)? onRemoveFromBuffer; // 从缓冲区删除媒体的回调
 
-  const MessageBubble({super.key, required this.message, this.userAvatarPath});
+  const MessageBubble({
+    super.key,
+    required this.message,
+    this.userAvatarPath,
+    this.onRemoveFromBuffer,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -34,28 +40,38 @@ class MessageBubble extends StatelessWidget {
             const SizedBox(width: 8),
           ],
           Flexible(
-            child: GestureDetector(
-              onLongPress: () => _showMessageOptions(context),
-              child: Container(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.7,
-                ),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isUser
-                      ? Colors.blue.withValues(alpha: 0.8)
-                      : Colors.grey[200]?.withValues(alpha: 0.8),
-                  borderRadius: BorderRadius.circular(18).copyWith(
-                    bottomLeft: isUser
-                        ? const Radius.circular(18)
-                        : const Radius.circular(4),
-                    bottomRight: isUser
-                        ? const Radius.circular(4)
-                        : const Radius.circular(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onLongPress: () => _showMessageOptions(context),
+                  child: Container(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.7,
+                    ),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isUser
+                          ? Colors.blue.withValues(alpha: 0.8)
+                          : Colors.grey[200]?.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(18).copyWith(
+                        bottomLeft: isUser
+                            ? const Radius.circular(18)
+                            : const Radius.circular(4),
+                        bottomRight: isUser
+                            ? const Radius.circular(4)
+                            : const Radius.circular(18),
+                      ),
+                    ),
+                    child: _buildMessageContent(context),
                   ),
                 ),
-                child: _buildMessageContent(context),
-              ),
+                // 在bot消息下方添加反馈按钮（仅当有媒体结果时显示）
+                if (!isUser && _shouldShowFeedbackButtons()) ...[
+                  const SizedBox(height: 4),
+                  _buildFeedbackButtons(context),
+                ],
+              ],
             ),
           ),
           if (isUser) ...[const SizedBox(width: 8), _buildUserAvatar()],
@@ -633,5 +649,89 @@ class MessageBubble extends StatelessWidget {
         );
       }
     }
+  }
+
+  /// 判断是否应该显示反馈按钮
+  /// 只有当bot返回了实际的媒体结果（视频或图片）时才显示
+  bool _shouldShowFeedbackButtons() {
+    // 只有bot的消息才显示反馈按钮
+    if (message.sender != MessageSender.bot) {
+      return false;
+    }
+
+    // 只有当消息包含媒体文件（视频或图片）时才显示
+    // 这样可以排除"正在处理中..."等状态消息
+    return (message.type == MessageType.video ||
+            message.type == MessageType.image) &&
+        message.mediaPath != null &&
+        message.mediaPath!.isNotEmpty;
+  }
+
+  /// 构建反馈按钮（只在bot消息下显示）
+  Widget _buildFeedbackButtons(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildFeedbackButton(
+          context,
+          icon: Icons.check,
+          color: Colors.green,
+          tooltip: '满意',
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('感谢您的反馈！'),
+                duration: Duration(seconds: 1),
+              ),
+            );
+          },
+        ),
+        const SizedBox(width: 8),
+        _buildFeedbackButton(
+          context,
+          icon: Icons.close,
+          color: Colors.red,
+          tooltip: '不满意',
+          onPressed: () {
+            // 从缓冲区删除该媒体
+            if (onRemoveFromBuffer != null && message.mediaPath != null) {
+              onRemoveFromBuffer!(message.mediaPath!);
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('已从缓冲区移除，我们会继续改进！'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  /// 构建单个反馈按钮
+  Widget _buildFeedbackButton(
+    BuildContext context, {
+    required IconData icon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(12),
+      child: Tooltip(
+        message: tooltip,
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
+          ),
+          child: Icon(icon, size: 16, color: color),
+        ),
+      ),
+    );
   }
 }

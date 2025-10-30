@@ -8,7 +8,10 @@ class ChatMessagesSection extends StatelessWidget {
   final ScrollController scrollController;
   final List<dynamic> historyProjects;
   final VoidCallback onStartConversation;
+  final VoidCallback onStyleCardMode;
+  final VoidCallback onCreateStyleCardMode;
   final String? userAvatarPath;
+  final Function(String mediaPath)? onRemoveFromBuffer;
 
   const ChatMessagesSection({
     super.key,
@@ -16,7 +19,10 @@ class ChatMessagesSection extends StatelessWidget {
     required this.scrollController,
     required this.historyProjects,
     required this.onStartConversation,
+    required this.onStyleCardMode,
+    required this.onCreateStyleCardMode,
     this.userAvatarPath,
+    this.onRemoveFromBuffer,
   });
 
   @override
@@ -24,7 +30,11 @@ class ChatMessagesSection extends StatelessWidget {
     return Container(
       color: Colors.transparent,
       child: historyProjects.isEmpty
-          ? WelcomeSection(onStartConversation: onStartConversation)
+          ? WelcomeSection(
+              onStartConversation: onStartConversation,
+              onStyleCardMode: onStyleCardMode,
+              onCreateStyleCardMode: onCreateStyleCardMode,
+            )
           : ListView.builder(
               controller: scrollController,
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -33,6 +43,7 @@ class ChatMessagesSection extends StatelessWidget {
                 return MessageBubble(
                   message: messages[index],
                   userAvatarPath: userAvatarPath,
+                  onRemoveFromBuffer: onRemoveFromBuffer,
                 );
               },
             ),

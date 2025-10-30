@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'models/persona_models.dart';
-import 'sections/my_persona_section.dart';
 import 'sections/style_card_management_section.dart';
 import 'sections/my_sharing_section.dart';
 import 'sections/growth_trajectory_section.dart';
@@ -15,33 +14,7 @@ class PersonaPage extends StatefulWidget {
 }
 
 class _PersonaPageState extends State<PersonaPage> {
-  double _styleFusionRatio = 0.7;
-
-  // 🆕 真实人格数据
-  Map<String, dynamic>? _personaData;
-  bool _isLoading = true;
-  String? _errorMessage;
-
-  // 模拟数据（作为fallback）
-  final List<Persona> _personas = [
-    Persona(
-      id: '1',
-      title: '理性讲师',
-      tag: '理性',
-      tagColor: Colors.yellow,
-      progress: 0.85,
-      icon: Icons.person,
-    ),
-    Persona(
-      id: '2',
-      title: '搞笑弹幕',
-      tag: '搞笑',
-      tagColor: Colors.orange,
-      progress: 0.45,
-      icon: Icons.chat_bubble_outline,
-    ),
-  ];
-
+  // 模拟数据
   final List<StyleCard> _styleCards = [
     StyleCard(id: '1', title: '毒蛇型', imageUrl: '', isDownloaded: false),
     StyleCard(id: '2', title: '理性讲师', imageUrl: '', isDownloaded: true),
@@ -136,62 +109,8 @@ class _PersonaPageState extends State<PersonaPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🆕 真实人格数据显示
-            if (_isLoading)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text(
-                        '正在加载你的剪辑人格...',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else if (_errorMessage != null)
-              Container(
-                padding: EdgeInsets.all(16),
-                margin: EdgeInsets.only(bottom: 24),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.orange),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _errorMessage!,
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else if (_personaData != null)
-              _buildRealPersonaCard(_personaData!),
-
-            // 我的Persona部分
-            MyPersonaSection(personas: _personas),
-            const SizedBox(height: 32),
-
             // 风格卡管理部分
-            StyleCardManagementSection(
-              styleCards: _styleCards,
-              styleFusionRatio: _styleFusionRatio,
-              onStyleFusionRatioChanged: (value) {
-                setState(() {
-                  _styleFusionRatio = value;
-                });
-              },
-            ),
+            StyleCardManagementSection(styleCards: _styleCards),
             const SizedBox(height: 32),
 
             // 我的共享部分

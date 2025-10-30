@@ -3,15 +3,8 @@ import '../models/persona_models.dart';
 
 class StyleCardManagementSection extends StatelessWidget {
   final List<StyleCard> styleCards;
-  final double styleFusionRatio;
-  final ValueChanged<double> onStyleFusionRatioChanged;
 
-  const StyleCardManagementSection({
-    super.key,
-    required this.styleCards,
-    required this.styleFusionRatio,
-    required this.onStyleFusionRatioChanged,
-  });
+  const StyleCardManagementSection({super.key, required this.styleCards});
 
   @override
   Widget build(BuildContext context) {
@@ -21,8 +14,6 @@ class StyleCardManagementSection extends StatelessWidget {
         _buildSectionHeader('风格卡管理'),
         const SizedBox(height: 16),
         _buildStyleCards(),
-        const SizedBox(height: 24),
-        _buildStyleFusionRatio(),
       ],
     );
   }
@@ -126,41 +117,6 @@ class StyleCardManagementSection extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildStyleFusionRatio() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '风格融合比例',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
-        SliderTheme(
-          data: const SliderThemeData(
-            activeTrackColor: Color(0xFF8B5CF6),
-            inactiveTrackColor: Color(0xFF374151),
-            thumbColor: Colors.white,
-            overlayColor: Color(0xFF8B5CF6),
-          ),
-          child: Slider(
-            value: styleFusionRatio,
-            onChanged: onStyleFusionRatioChanged,
-            min: 0.0,
-            max: 1.0,
-          ),
-        ),
-        Text(
-          '${(styleFusionRatio * 100).toInt()}% 我的风格',
-          style: const TextStyle(color: Colors.white, fontSize: 14),
-        ),
-      ],
     );
   }
 }

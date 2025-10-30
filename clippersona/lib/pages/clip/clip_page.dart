@@ -694,6 +694,18 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       await _createNewConversation();
     }
 
+    // 删除后端会话
+    print('🗑️ 删除会话: ${project.id}');
+    final backendDeleted = await BackendSessionService.deleteSession(
+      project.id,
+    );
+    if (backendDeleted) {
+      print('✅ 后端会话已删除: ${project.id}');
+    } else {
+      print('⚠️ 后端会话删除失败: ${project.id}');
+    }
+
+    // 删除本地项目
     await ProjectService.instance.deleteProject(project.id);
     await _loadHistoryProjects();
   }
@@ -785,13 +797,27 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     }
   }
 
-  // 开始对话 - 创建新会话
+  // 开始对话 - 创建新会话（智能剪辑模式）
   Future<void> _startConversation() async {
     await _createNewProjectWithBackend();
     setState(() {
       _messages.clear();
     });
     await _loadHistoryProjects(); // 重新加载历史项目
+  }
+
+  // 调用风格卡模式
+  void _onStyleCardMode() {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('调用风格卡功能开发中...')));
+  }
+
+  // 创建风格卡模式
+  void _onCreateStyleCardMode() {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('创建风格卡功能开发中...')));
   }
 
   /// 检查并请求图片权限
@@ -1252,6 +1278,21 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     });
   }
 
+  // 根据媒体路径从暂存区中删除媒体（用于反馈按钮）
+  void _removeMediaFromBufferByPath(String mediaPath) {
+    print('🗑️ 从缓冲区删除媒体: $mediaPath');
+    setState(() {
+      final initialCount = _pendingMedia.length;
+      _pendingMedia.removeWhere((item) => item.path == mediaPath);
+      final removedCount = initialCount - _pendingMedia.length;
+      if (removedCount > 0) {
+        print('✅ 已从缓冲区删除 $removedCount 个媒体，剩余: ${_pendingMedia.length}');
+      } else {
+        print('⚠️ 未找到要删除的媒体: $mediaPath');
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // 判断是否有活跃的会话
@@ -1265,7 +1306,7 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       appBar: ClipAppBar(
         onHistoryTap: _toggleHistory,
         onNewConversationTap: _createNewConversation,
-        // 有会话时显示"新会话"，无会话时显示默认的"剪辑"
+        // 有会话时显示"新会话"，无会话时显示默认的"工作台"
         title: hasActiveSession ? '新会话' : null,
       ),
       body: Stack(
@@ -1279,7 +1320,10 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
                   scrollController: _scrollController,
                   historyProjects: _historyProjects,
                   onStartConversation: _startConversation,
+                  onStyleCardMode: _onStyleCardMode,
+                  onCreateStyleCardMode: _onCreateStyleCardMode,
                   userAvatarPath: _userAvatarPath,
+                  onRemoveFromBuffer: _removeMediaFromBufferByPath,
                 ),
               ),
               // 只有在有活跃会话时才显示媒体预览栏和输入框
