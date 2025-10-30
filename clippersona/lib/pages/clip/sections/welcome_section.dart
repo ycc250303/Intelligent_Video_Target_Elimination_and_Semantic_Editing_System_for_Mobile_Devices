@@ -2,8 +2,15 @@ import 'package:flutter/material.dart';
 
 class WelcomeSection extends StatelessWidget {
   final VoidCallback onStartConversation;
+  final VoidCallback onStyleCardMode;
+  final VoidCallback onCreateStyleCardMode;
 
-  const WelcomeSection({super.key, required this.onStartConversation});
+  const WelcomeSection({
+    super.key,
+    required this.onStartConversation,
+    required this.onStyleCardMode,
+    required this.onCreateStyleCardMode,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -53,33 +60,84 @@ class WelcomeSection extends StatelessWidget {
             ),
             const SizedBox(height: 32),
 
-            // 开始对话按钮
-            ElevatedButton(
+            // 三个模式按钮
+            _buildModeButton(
+              context: context,
+              icon: Icons.auto_awesome,
+              label: '智能剪辑',
+              description: '通过对话进行智能剪辑',
+              color: const Color(0xFF3B82F6),
               onPressed: onStartConversation,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                elevation: 4,
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
+            ),
+            const SizedBox(height: 16),
+            _buildModeButton(
+              context: context,
+              icon: Icons.style,
+              label: '调用风格卡',
+              description: '使用预设风格快速剪辑',
+              color: const Color(0xFF8B5CF6),
+              onPressed: onStyleCardMode,
+            ),
+            const SizedBox(height: 16),
+            _buildModeButton(
+              context: context,
+              icon: Icons.add_circle_outline,
+              label: '创建风格卡',
+              description: '创建自定义剪辑风格',
+              color: const Color(0xFF10B981),
+              onPressed: onCreateStyleCardMode,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeButton({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required String description,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 4,
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 24),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.play_arrow, size: 18),
-                  SizedBox(width: 8),
                   Text(
-                    '开始对话',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    label,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    description,
+                    style: const TextStyle(fontSize: 12, color: Colors.white70),
                   ),
                 ],
               ),
             ),
+            const Icon(Icons.arrow_forward_ios, size: 16),
           ],
         ),
       ),

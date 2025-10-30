@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'models/persona_models.dart';
-import 'sections/my_persona_section.dart';
 import 'sections/style_card_management_section.dart';
 import 'sections/my_sharing_section.dart';
 import 'sections/growth_trajectory_section.dart';
@@ -13,28 +12,7 @@ class PersonaPage extends StatefulWidget {
 }
 
 class _PersonaPageState extends State<PersonaPage> {
-  double _styleFusionRatio = 0.7;
-
   // 模拟数据
-  final List<Persona> _personas = [
-    Persona(
-      id: '1',
-      title: '理性讲师',
-      tag: '理性',
-      tagColor: Colors.yellow,
-      progress: 0.85,
-      icon: Icons.person,
-    ),
-    Persona(
-      id: '2',
-      title: '搞笑弹幕',
-      tag: '搞笑',
-      tagColor: Colors.orange,
-      progress: 0.45,
-      icon: Icons.chat_bubble_outline,
-    ),
-  ];
-
   final List<StyleCard> _styleCards = [
     StyleCard(id: '1', title: '毒蛇型', imageUrl: '', isDownloaded: false),
     StyleCard(id: '2', title: '理性讲师', imageUrl: '', isDownloaded: true),
@@ -83,20 +61,8 @@ class _PersonaPageState extends State<PersonaPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 我的Persona部分
-            MyPersonaSection(personas: _personas),
-            const SizedBox(height: 32),
-
             // 风格卡管理部分
-            StyleCardManagementSection(
-              styleCards: _styleCards,
-              styleFusionRatio: _styleFusionRatio,
-              onStyleFusionRatioChanged: (value) {
-                setState(() {
-                  _styleFusionRatio = value;
-                });
-              },
-            ),
+            StyleCardManagementSection(styleCards: _styleCards),
             const SizedBox(height: 32),
 
             // 我的共享部分

@@ -430,33 +430,6 @@ class _PersonaDetailPageState extends State<PersonaDetailPage> {
                 ),
               ],
             ),
-
-            // Robot 装饰图片
-            Positioned(
-              top: MediaQuery.of(context).padding.top + kToolbarHeight + 200,
-              right: 20,
-              child: Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(40),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 10,
-                      offset: Offset(0, 5),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(40),
-                  child: Image.asset(
-                    'assets/communityPage/robot.png',
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),
