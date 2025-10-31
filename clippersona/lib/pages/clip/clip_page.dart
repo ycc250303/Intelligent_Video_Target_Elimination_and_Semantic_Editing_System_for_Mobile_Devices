@@ -931,6 +931,29 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     try {
       print('🎨 开始应用风格卡: ${styleCard.title} 到视频: $videoPath');
 
+      // 0. 检查是否有字幕操作，如果有则询问用户输入字幕
+      String? userSubtitle;
+      final hasSubtitleOperation = _checkHasSubtitleOperation(styleCard);
+
+      if (hasSubtitleOperation) {
+        userSubtitle = await _promptForSubtitleInput(context);
+
+        if (userSubtitle == null) {
+          // 用户取消输入
+          print('⚠️ 用户取消输入字幕，终止应用风格卡');
+          return;
+        }
+
+        print('✅ 用户输入字幕: $userSubtitle');
+
+        // 如果不是"旅行vlog" Demo模式，则替换字幕操作的参数
+        if (styleCard.title != '旅行vlog') {
+          styleCard = _replaceSubtitleInOperations(styleCard, userSubtitle);
+        } else {
+          print('🎬 旅行vlog Demo模式：用户已输入字幕，但不替换参数');
+        }
+      }
+
       // 1. 先创建新会话（如果没有），确保有 projectId
       if (_currentProjectId == null) {
         await _createNewProjectWithBackend(SessionType.applyStyleCard);
@@ -1051,6 +1074,13 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
           lastTaskId = taskId; // 保存最后一个任务ID
           // 等待当前操作完成再执行下一个（不轮询UI更新）
           await _waitForTaskCompletion(taskId);
+
+          // 如果是"旅行vlog" Demo风格卡，每个操作完成后额外等待10秒
+          if (styleCard.title == '旅行vlog') {
+            print('⏱️  旅行vlog Demo模式：操作 ${i + 1} 完成，等待10秒...');
+            await Future.delayed(const Duration(seconds: 10));
+            print('⏱️  等待完成，继续下一个操作');
+          }
         } else {
           // 操作失败
           if (processingMessageId.isNotEmpty && mounted) {
@@ -1250,6 +1280,112 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       print('❌ 提交操作失败: $e');
       return null;
     }
+  }
+
+  /// 检查风格卡是否包含字幕操作
+  bool _checkHasSubtitleOperation(persona.StyleCard styleCard) {
+    for (final operation in styleCard.operations) {
+      for (final functionCall in operation.functionCalls) {
+        // 检查函数名是否包含 add_text（可能是 add_text, add_text_with_effect, add_text_overlay 等）
+        if (functionCall.functionName.contains('add_text')) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /// 弹出对话框让用户输入字幕
+  Future<String?> _promptForSubtitleInput(BuildContext context) async {
+    final TextEditingController controller = TextEditingController();
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1F2937),
+          title: const Text('输入字幕', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: '请输入要添加的字幕内容',
+              hintStyle: TextStyle(color: Colors.grey),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFF8B5CF6)),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFF8B5CF6), width: 2),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('取消', style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isNotEmpty) {
+                  Navigator.of(context).pop(text);
+                }
+              },
+              child: const Text(
+                '确定',
+                style: TextStyle(color: Color(0xFF8B5CF6)),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 替换风格卡操作中的字幕文本
+  persona.StyleCard _replaceSubtitleInOperations(
+    persona.StyleCard styleCard,
+    String newSubtitle,
+  ) {
+    // 创建新的操作列表，替换字幕操作中的text参数
+    final newOperations = styleCard.operations.map((operation) {
+      final newFunctionCalls = operation.functionCalls.map((functionCall) {
+        if (functionCall.functionName.contains('add_text')) {
+          // 复制参数并替换text字段
+          final newParams = Map<String, dynamic>.from(functionCall.parameters);
+          newParams['text'] = newSubtitle;
+
+          return FunctionCall(
+            functionName: functionCall.functionName,
+            parameters: newParams,
+          );
+        }
+        return functionCall;
+      }).toList();
+
+      return OperationRecord(
+        userInstruction: operation.userInstruction,
+        functionCalls: newFunctionCalls,
+        timestamp: operation.timestamp,
+      );
+    }).toList();
+
+    // 返回新的风格卡
+    return persona.StyleCard(
+      id: styleCard.id,
+      title: styleCard.title,
+      imageUrl: styleCard.imageUrl,
+      description: styleCard.description,
+      operations: newOperations,
+      status: styleCard.status,
+      downloads: styleCard.downloads,
+      comments: styleCard.comments,
+      isShared: styleCard.isShared,
+      isShareEnabled: styleCard.isShareEnabled,
+      isDemoCard: styleCard.isDemoCard,
+    );
   }
 
   /// 等待任务完成

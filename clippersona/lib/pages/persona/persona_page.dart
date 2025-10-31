@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'models/persona_models.dart';
 import 'sections/style_card_management_section.dart';
-import 'sections/growth_trajectory_section.dart';
 import '../../services/style_card_service.dart';
 
 class PersonaPage extends StatefulWidget {
@@ -13,18 +12,6 @@ class PersonaPage extends StatefulWidget {
 
 class _PersonaPageState extends State<PersonaPage> {
   List<StyleCard> _styleCards = [];
-
-  final List<GrowthData> _growthData = [
-    GrowthData(value: 1, label: '0'),
-    GrowthData(value: 2, label: '100'),
-    GrowthData(value: 3, label: '200'),
-    GrowthData(value: 2.5, label: '300'),
-    GrowthData(value: 2.8, label: '400'),
-    GrowthData(value: 3.2, label: '500'),
-    GrowthData(value: 3.5, label: '600'),
-    GrowthData(value: 3.8, label: '700'),
-    GrowthData(value: 4.0, label: '800'),
-  ];
 
   @override
   void initState() {
@@ -128,7 +115,7 @@ class _PersonaPageState extends State<PersonaPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Persona'),
+        title: const Text('风格卡'),
         centerTitle: true,
         foregroundColor: Colors.white,
         actions: [
@@ -152,13 +139,6 @@ class _PersonaPageState extends State<PersonaPage> {
               onDelete: _handleDelete,
               onShare: _handleShare,
               onUnshare: _handleUnshare,
-            ),
-            const SizedBox(height: 32),
-
-            // 成长轨迹部分
-            GrowthTrajectorySection(
-              growthData: _growthData,
-              milestone: '里程碑:完成100次调整',
             ),
           ],
         ),

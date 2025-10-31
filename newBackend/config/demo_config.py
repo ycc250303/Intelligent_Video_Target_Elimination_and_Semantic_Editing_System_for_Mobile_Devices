@@ -283,7 +283,7 @@ def is_demo_mode_enabled() -> bool:
     检查是否启用demo模式
     可以通过环境变量控制
     """
-    return os.getenv("ENABLE_DEMO_MODE", "true").lower() == "true"
+    return os.getenv("ENABLE_DEMO_MODE", "false").lower() == "true"
 
 
 
