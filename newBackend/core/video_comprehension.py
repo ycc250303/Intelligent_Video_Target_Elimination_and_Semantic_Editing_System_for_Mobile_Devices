@@ -1,6 +1,14 @@
+import os
+import sys
+
+# 添加项目根目录到 Python 路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 from config.config import QWEN_API_KEY, QWEN_BASE_CHAT_URL, QWEN_BASE_CHAT_MODEL
 
-import os
 import base64
 from pathlib import Path
 from openai import OpenAI
@@ -256,7 +264,7 @@ if __name__ == "__main__":
         print("=" * 60)
         print("正在分析视频...")
         print("=" * 60)
-        description = comprehend_video(test_video_path, use_base64=True)
+        description = comprehend_video(test_video_path,prompt="描述视频内容，并指出视频中存在几次转场",use_base64=True)
         print("\n" + "=" * 60)
         print("视频内容描述：")
         print("=" * 60)

@@ -44,14 +44,21 @@ class ClipAppBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       actions: [
         // 根据模式显示不同的按钮
-        if (mode == ClipAppBarMode.createStyleCard)
+        if (mode == ClipAppBarMode.createStyleCard) ...[
+          // 创建风格卡模式：显示返回和导出按钮
+          if (showBackButton)
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: onBackToWelcome,
+              tooltip: '返回首页',
+            ),
           IconButton(
             icon: const Icon(Icons.upload),
             onPressed: onExportStyleCard,
             tooltip: '导出风格卡',
-          )
-        else ...[
-          // 如果有活跃会话，显示返回按钮
+          ),
+        ] else ...[
+          // 普通模式：显示返回和新建按钮
           if (showBackButton)
             IconButton(
               icon: const Icon(Icons.arrow_back),

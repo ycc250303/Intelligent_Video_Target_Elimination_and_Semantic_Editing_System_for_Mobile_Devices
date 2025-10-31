@@ -8,11 +8,19 @@ import uuid
 import time
 import logging
 import os
+import sys
 import json
 import re
 import ast
 from typing import Dict, Any, Callable, Optional, Tuple, List
 from openai import OpenAI
+
+# 添加项目根目录到 Python 路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 from config.config import SYSTEM_PROMPT_JSON,QWEN_API_KEY,QWEN_BASE_CHAT_MODEL,QWEN_BASE_CHAT_URL,OPERATIONS,InstructionType
 from config.config import PARAM_INFERENCE_PROMPTS, SMART_DEFAULTS, PARAM_RANGES
 from .multimodal_processor import MultimodalProcessor, MultimodalInput

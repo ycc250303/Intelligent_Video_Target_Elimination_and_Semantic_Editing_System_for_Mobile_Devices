@@ -74,14 +74,19 @@ class FFmpegVideoEditor:
     def add_transition(self, type: str = "fade", duration: float = 1.0, start_time: float = 0.0):
         """
         添加转场效果，使用FFmpeg的fade过滤器实现淡入淡出。
+        
+        注意：此函数会智能判断应该使用淡入还是淡出：
+        - 在视频开头（start_time < 2秒）：使用淡入效果（从黑色渐显）
+        - 在视频结尾（距结尾 < 2秒）：使用淡出效果（渐变到黑色）
+        - 其他位置：默认使用淡入效果
 
         Args:
-            type: 转场类型，目前支持 'fade'
+            type: 转场类型，目前支持 'fade' 或 'fade_in'（淡入）、'fade_out'（淡出）
             duration: 转场持续时间（秒）
             start_time: 转场开始时间（秒）
         """
-        if type != "fade":
-            raise ValueError(f"FFmpeg编辑器目前只支持 'fade' 类型的转场，收到: {type}")
+        if type not in ("fade", "fade_in", "fade_out"):
+            raise ValueError(f"FFmpeg编辑器目前只支持 'fade'、'fade_in'、'fade_out' 类型的转场，收到: {type}")
         
         if duration <= 0:
             raise ValueError("转场持续时间必须大于 0")
@@ -96,19 +101,38 @@ class FFmpegVideoEditor:
                 f"转场结束时间 {start_time + duration:.3f}s 超过视频总时长 {total:.3f}s，请缩短持续时间或调整开始时间"
             )
 
-        # 使用fade过滤器实现淡入淡出效果
-        # 淡入：从start_time开始，持续duration秒
-        fade_in = f"fade=t=in:st={start_time}:d={duration}"
+        # 智能判断应该使用淡入还是淡出
+        if type == "fade":
+            # 自动判断：开头用淡入，结尾用淡出
+            if start_time < 2.0:
+                # 在视频开头，使用淡入
+                fade_filter = f"fade=t=in:st={start_time}:d={duration}"
+                effect_type = "淡入"
+            elif start_time > total - 2.0:
+                # 在视频结尾，使用淡出
+                fade_filter = f"fade=t=out:st={start_time}:d={duration}"
+                effect_type = "淡出"
+            else:
+                # 中间位置，默认使用淡入
+                fade_filter = f"fade=t=in:st={start_time}:d={duration}"
+                effect_type = "淡入"
+                logger.warning(
+                    f"转场位于视频中间位置（{start_time}s），默认使用淡入效果。"
+                    f"如需淡出，请明确指定 type='fade_out'"
+                )
+        elif type == "fade_in":
+            # 明确指定淡入
+            fade_filter = f"fade=t=in:st={start_time}:d={duration}"
+            effect_type = "淡入"
+        else:  # fade_out
+            # 明确指定淡出
+            fade_filter = f"fade=t=out:st={start_time}:d={duration}"
+            effect_type = "淡出"
         
-        # 淡出：从start_time开始，持续duration秒
-        fade_out = f"fade=t=out:st={start_time}:d={duration}"
-        
-        # 添加淡入淡出效果
-        self.filters.append(fade_in)
-        self.filters.append(fade_out)
+        self.filters.append(fade_filter)
         
         logger.info(
-            f"已添加转场效果（ffmpeg）：type={type}, start={start_time}s, duration={duration}s"
+            f"已添加转场效果（ffmpeg）：{effect_type}, start={start_time}s, duration={duration}s"
         )
 
     def make_black_and_white(self, start_time: float = 0.0, duration: float = 3.0):
@@ -802,6 +826,7 @@ class FFmpegVideoEditor:
             return True
         elif action == 'add_transition':
             # 解析参数，支持"总时长"表达式
+            # 支持 type 为 'fade', 'fade_in', 'fade_out'
             type_param = params.get('type', 'fade')
             duration = self._parse_duration_expression(params.get('duration', 1.0)) if 'duration' in params else 1.0
             start_time = self._parse_duration_expression(params.get('start_time', 0.0)) if 'start_time' in params else 0.0

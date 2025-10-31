@@ -10,19 +10,9 @@ class StyleCardService {
   StyleCardService._internal();
 
   // 风格卡列表（全局状态）
+  // 不再初始化demo风格卡，用户可以自己创建
   static final ValueNotifier<List<StyleCard>> styleCardsNotifier =
-      ValueNotifier<List<StyleCard>>([
-        // Demo风格卡（不会被删除或修改）
-        StyleCard.local(
-          id: 'demo_travel_vlog',
-          title: '旅行vlog',
-          imageUrl: 'assets/personaPage/demo_vlog_travel.png',
-          description: '为旅行视频增添活力！自动添加转场、贴纸、背景音乐，让你的vlog更精彩！',
-          operations: [], // Demo风格卡不需要操作记录
-          isDemoCard: true, // 标记为Demo卡
-        ),
-        // 用户创建的风格卡将添加到这里
-      ]);
+      ValueNotifier<List<StyleCard>>([]);
 
   // 初始化标志
   static bool _isInitialized = false;
@@ -31,15 +21,39 @@ class StyleCardService {
   static Future<void> initialize() async {
     if (_isInitialized) return;
 
-    final styleCards = await StyleCardStorageService.loadStyleCards();
-    styleCardsNotifier.value = styleCards;
+    debugPrint('🔄 初始化风格卡服务...');
+
+    // 加载用户创建的风格卡
+    final loadedStyleCards = await StyleCardStorageService.loadStyleCards();
+    debugPrint('   从存储加载了 ${loadedStyleCards.length} 个用户风格卡');
+
+    // 获取 Demo 风格卡（初始值中的第一个）
+    final demoCards = styleCardsNotifier.value
+        .where((card) => card.isDemoCard)
+        .toList();
+    debugPrint('   保留 ${demoCards.length} 个 Demo 风格卡');
+
+    // 合并：Demo 卡 + 加载的用户卡
+    final allCards = [...demoCards, ...loadedStyleCards];
+    styleCardsNotifier.value = allCards;
+
     _isInitialized = true;
-    debugPrint('风格卡服务已初始化，加载了 ${styleCards.length} 个风格卡');
+    debugPrint('✅ 风格卡服务初始化完成，共 ${allCards.length} 个风格卡');
+
+    // 调试：打印每个风格卡的操作数量
+    for (var card in allCards) {
+      debugPrint('   - ${card.title}: ${card.operations.length} 个操作');
+    }
   }
 
   /// 保存当前风格卡列表到本地
   static Future<void> _saveToStorage() async {
-    await StyleCardStorageService.saveStyleCards(styleCardsNotifier.value);
+    // 只保存用户创建的风格卡，不保存Demo卡
+    final userStyleCards = styleCardsNotifier.value
+        .where((card) => !card.isDemoCard)
+        .toList();
+    debugPrint('💾 保存用户风格卡: ${userStyleCards.length} 个');
+    await StyleCardStorageService.saveStyleCards(userStyleCards);
   }
 
   /// 获取所有风格卡

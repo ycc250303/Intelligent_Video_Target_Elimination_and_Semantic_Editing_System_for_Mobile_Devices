@@ -245,6 +245,14 @@ class MessageBubble extends StatelessWidget {
 
   // 构建视频显示组件
   Widget _buildVideoWidget() {
+    // 尝试从 mediaList 获取缩略图路径
+    String? thumbnailPath = message.thumbnailPath;
+    if (thumbnailPath == null || thumbnailPath.isEmpty) {
+      if (message.mediaList != null && message.mediaList!.isNotEmpty) {
+        thumbnailPath = message.mediaList!.first.thumbnailPath;
+      }
+    }
+
     return Container(
       width: 200,
       height: 150,
@@ -258,10 +266,9 @@ class MessageBubble extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             // 显示视频缩略图（第一帧）
-            if (message.thumbnailPath != null &&
-                message.thumbnailPath!.isNotEmpty)
+            if (thumbnailPath != null && thumbnailPath.isNotEmpty)
               Image.file(
-                File(message.thumbnailPath!),
+                File(thumbnailPath),
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return _buildVideoPlaceholder();
@@ -354,7 +361,15 @@ class MessageBubble extends StatelessWidget {
 
   // 处理视频点击事件
   void _onVideoTap(BuildContext context) {
-    if (message.mediaPath == null || message.mediaPath!.isEmpty) {
+    // 尝试从 mediaPath 或 mediaList 获取视频路径
+    String? videoPath = message.mediaPath;
+    if (videoPath == null || videoPath.isEmpty) {
+      if (message.mediaList != null && message.mediaList!.isNotEmpty) {
+        videoPath = message.mediaList!.first.path;
+      }
+    }
+
+    if (videoPath == null || videoPath.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('视频路径无效')));
@@ -365,7 +380,7 @@ class MessageBubble extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => VideoPlayerScreen(videoPath: message.mediaPath!),
+        builder: (context) => VideoPlayerScreen(videoPath: videoPath!),
       ),
     );
   }
@@ -661,10 +676,17 @@ class MessageBubble extends StatelessWidget {
 
     // 只有当消息包含媒体文件（视频或图片）时才显示
     // 这样可以排除"正在处理中..."等状态消息
-    return (message.type == MessageType.video ||
-            message.type == MessageType.image) &&
-        message.mediaPath != null &&
-        message.mediaPath!.isNotEmpty;
+    if (message.type == MessageType.video ||
+        message.type == MessageType.image) {
+      // 检查 mediaPath 或 mediaList
+      if (message.mediaPath != null && message.mediaPath!.isNotEmpty) {
+        return true;
+      }
+      if (message.mediaList != null && message.mediaList!.isNotEmpty) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// 构建反馈按钮（只在bot消息下显示）
