@@ -3,9 +3,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 相机权限 -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- 读取外部存储权限 -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <!-- 写入外部存储权限（Android 9及以下需要，Android 10+ gal包会使用MediaStore） -->
+    <!-- 读取外部存储权限 (Android 10 及以下) -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
+        android:maxSdkVersion="32" />
+    <!-- 写入外部存储权限（Android 9及以下需要） -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
         android:maxSdkVersion="29" />
     <!-- Android 13+ 读取媒体图片权限 -->
@@ -18,7 +19,8 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
-        android:networkSecurityConfig="@xml/network_security_config">
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

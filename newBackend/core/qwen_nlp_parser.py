@@ -14,6 +14,7 @@ import ast
 from typing import Dict, Any, Callable, Optional, Tuple, List
 from openai import OpenAI
 from config.config import SYSTEM_PROMPT_JSON,QWEN_API_KEY,QWEN_BASE_CHAT_MODEL,QWEN_BASE_CHAT_URL,OPERATIONS,InstructionType
+from config.config import PARAM_INFERENCE_PROMPTS, SMART_DEFAULTS, PARAM_RANGES
 from .multimodal_processor import MultimodalProcessor, MultimodalInput
 
 
@@ -150,7 +151,7 @@ def generate_response_by_type(instruction_type: int, ai_response: str, user_inpu
             return result if result.startswith("action:") else "action:" + result
             
         elif instruction_type == 2:
-            # 第二种情况：返回的值为None的params
+            # 第二种情况：参数为Unknown/None，需要智能推断
             response_data = json.loads(clean_response)
             operations = response_data["operations"]
             
@@ -158,16 +159,37 @@ def generate_response_by_type(instruction_type: int, ai_response: str, user_inpu
             operation_name = operations["operation"]
             operation_def = OPERATIONS[operation_name]
             
-            # 创建包含None值的params
-            none_params = {}
+            # 获取原始params（可能包含Unknown或None）
+            original_params = operations.get("params", {})
+            
+            logger.info(f"⚙️ 参数推断: 操作={operation_name}, 原始参数={original_params}")
+            
+            # 步骤1: 尝试智能默认值推断（基于用户输入关键词）
+            inferred_params = _apply_smart_defaults(user_input, operation_name, original_params.copy())
+            
+            # 步骤2: 如果还有None/Unknown值，使用操作定义的默认值
             for param_name, param_info in operation_def["params"].items():
-                none_params[param_name] = None
+                if inferred_params.get(param_name) in [None, "Unknown", ""]:
+                    default_value = param_info.get("default")
+                    if default_value is not None:
+                        inferred_params[param_name] = default_value
+                        logger.info(f"   使用默认值: {param_name}={default_value}")
+            
+            # 步骤3: 限制参数值在合理范围内
+            for param_name, param_value in inferred_params.items():
+                inferred_params[param_name] = _clamp_param_value(
+                    param_name,
+                    param_value,
+                    operation_name
+                )
+            
+            logger.info(f"✅ 参数推断完成: {inferred_params}")
             
             # 构建新的响应
             new_response = {
                 "operations": {
                     "operation": operation_name,
-                    "params": none_params,
+                    "params": inferred_params,
                     "editor": operations.get("editor", "ffmpeg")
                 }
             }
@@ -452,6 +474,67 @@ def ask_qwen_multimodal(
         instruction_type = classify_instruction_type(multimodal_input.text, raw_content)
         logger.info(f'指令类型: {instruction_type}')
         
+        # 🆕 智能参数推断：如果是类型2（缺少参数）且有视频输入，自动推断参数
+        if instruction_type == InstructionType.MATCH_OPERATION_BUT_NO_PARAMS.value and multimodal_input.has_videos():
+            logger.info("=" * 60)
+            logger.info("检测到参数缺失且有视频输入，启动智能参数推断流程")
+            logger.info("=" * 60)
+            
+            try:
+                # 解析当前响应
+                clean_content = raw_content.replace("action:", "").strip() if raw_content.strip().startswith("action:") else raw_content
+                response_data = safe_json_loads(clean_content)
+                operations = response_data.get("operations", {})
+                operation_name = operations.get("operation")
+                params = operations.get("params", {})
+                
+                if operation_name and multimodal_input.videos:
+                    # 获取视频路径
+                    video_path = multimodal_input.videos[0].content
+                    logger.info(f"操作类型: {operation_name}")
+                    logger.info(f"视频路径: {video_path}")
+                    logger.info(f"当前参数: {params}")
+                    
+                    # 识别缺失的必需参数
+                    op_def = OPERATIONS.get(operation_name, {})
+                    missing_params = []
+                    for param_name, param_info in op_def.get("params", {}).items():
+                        param_value = params.get(param_name)
+                        if param_info.get("required", False) and param_value in [None, "Unknown", ""]:
+                            missing_params.append(param_name)
+                    
+                    logger.info(f"缺失的必需参数: {missing_params}")
+                    
+                    # 调用视频参数推断
+                    inferred_params = _infer_params_from_video(
+                        operation_name=operation_name,
+                        video_path=video_path,
+                        user_input=multimodal_input.text,
+                        current_params=params
+                    )
+                    
+                    if inferred_params:
+                        # 填充推断的参数
+                        params.update(inferred_params)
+                        response_data["operations"]["params"] = params
+                        
+                        # 重新生成响应内容
+                        raw_content = json.dumps(response_data, ensure_ascii=False)
+                        
+                        # 重新分类（可能升级为类型1）
+                        instruction_type = classify_instruction_type(multimodal_input.text, raw_content)
+                        
+                        logger.info("=" * 60)
+                        logger.info(f"✅ 参数推断成功！更新后的参数: {params}")
+                        logger.info(f"指令类型更新为: {instruction_type}")
+                        logger.info("=" * 60)
+                    else:
+                        logger.warning("⚠️ 参数推断未能获取到有效参数，将使用原始响应")
+                
+            except Exception as e:
+                logger.error(f"❌ 参数推断过程出错: {e}")
+                logger.info("将继续使用原始响应")
+        
         # 根据指令类型生成相应响应
         processed_content = generate_response_by_type(instruction_type, raw_content, multimodal_input.text)
         logger.info(f'处理后的响应: {processed_content}')
@@ -474,6 +557,334 @@ def ask_qwen_multimodal(
         return None, history
 
 ## 取消顶层 process_instruction 包装：直接使用 ask_qwen 并在调用方维护 history
+
+
+# ==================== 视频参数推断模块 ====================
+
+def _apply_smart_defaults(user_input: str, operation_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    应用智能默认值 - 基于用户输入关键词匹配
+    
+    Args:
+        user_input: 用户的原始输入
+        operation_name: 操作名称
+        params: 当前参数字典
+        
+    Returns:
+        Dict: 填充后的参数字典
+    """
+    if operation_name not in SMART_DEFAULTS:
+        return params
+    
+    defaults = SMART_DEFAULTS[operation_name]
+    
+    # 根据操作类型确定参数名
+    if operation_name in ['adjust_speed', 'adjust_brightness', 'adjust_contrast', 'adjust_volume']:
+        param_name = 'factor'
+    elif operation_name == 'rotate':
+        param_name = 'angle'
+    else:
+        return params
+    
+    # 检查参数是否需要推断
+    if params.get(param_name) not in [None, "Unknown", ""]:
+        return params
+    
+    # 策略1: 精确匹配关键词
+    for keyword, default_value in defaults.items():
+        if keyword in user_input:
+            params[param_name] = default_value
+            logger.info(f"✅ 应用智能默认值: {param_name}={default_value} (关键词: '{keyword}')")
+            return params
+    
+    # 策略2: 模糊匹配（处理变体，如"调快"、"调快一点"）
+    # 对于速度调整，增加更多模糊匹配
+    if operation_name == 'adjust_speed':
+        user_lower = user_input.lower()
+        
+        # 加速相关的模糊匹配
+        speed_up_keywords = ['加快', '快', '加速', '提速', '快点', '快一点', '快些']
+        for kw in speed_up_keywords:
+            if kw in user_lower:
+                params[param_name] = 1.5  # 默认1.5倍速
+                logger.info(f"✅ 模糊匹配加速: {param_name}=1.5 (匹配: '{kw}')")
+                return params
+        
+        # 减速相关的模糊匹配
+        slow_down_keywords = ['减慢', '慢', '减速', '降速', '慢点', '慢一点', '慢些', '慢动作']
+        for kw in slow_down_keywords:
+            if kw in user_lower:
+                params[param_name] = 0.7  # 默认0.7倍速
+                logger.info(f"✅ 模糊匹配减速: {param_name}=0.7 (匹配: '{kw}')")
+                return params
+    
+    # 策略3: 使用默认值（如果有）
+    logger.info(f"⚠️ 未能从用户输入推断参数: {operation_name}.{param_name}")
+    
+    return params
+
+
+def _extract_params_from_analysis(
+    analysis_text: str,
+    operation_name: str,
+    user_input: str
+) -> Dict[str, Any]:
+    """
+    从视频分析结果中提取参数值
+    
+    Args:
+        analysis_text: 视频分析的文字描述
+        operation_name: 操作名称
+        user_input: 用户输入（用于兜底策略）
+        
+    Returns:
+        Dict: 提取的参数字典
+    """
+    params = {}
+    
+    # 策略1: 尝试直接解析JSON格式
+    try:
+        # 查找JSON块
+        import re
+        json_match = re.search(r'\{[^{}]*\}', analysis_text)
+        if json_match:
+            json_str = json_match.group(0)
+            parsed = safe_json_loads(json_str)
+            if isinstance(parsed, dict):
+                params.update(parsed)
+                logger.info(f"从JSON中提取参数: {params}")
+                return params
+    except Exception as e:
+        logger.debug(f"JSON解析失败: {e}")
+    
+    # 策略2: 使用正则表达式提取数值
+    if operation_name in ['adjust_speed', 'adjust_brightness', 'adjust_contrast', 'adjust_volume']:
+        param_name = 'factor'
+        
+        # 查找明确的数值表达
+        patterns = [
+            r'建议.*?系数.*?[:：]?\s*(\d+\.?\d*)',
+            r'系数.*?[:：]?\s*(\d+\.?\d*)',
+            r'factor.*?[:：]?\s*(\d+\.?\d*)',
+            r'(\d+\.?\d*)\s*倍',
+            r'调整为\s*(\d+\.?\d*)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, analysis_text)
+            if match:
+                try:
+                    value = float(match.group(1))
+                    params[param_name] = value
+                    logger.info(f"正则提取参数: {param_name}={value}")
+                    return params
+                except ValueError:
+                    continue
+    
+    elif operation_name == 'rotate':
+        # 提取旋转角度
+        patterns = [
+            r'angle.*?[:：]?\s*(-?\d+)',
+            r'旋转\s*(-?\d+)\s*度',
+            r'(\d+)\s*度',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, analysis_text)
+            if match:
+                try:
+                    value = int(match.group(1))
+                    params['angle'] = value
+                    logger.info(f"正则提取角度: {value}")
+                    return params
+                except ValueError:
+                    continue
+    
+    elif operation_name == 'trim':
+        # 提取裁剪时间点
+        start_match = re.search(r'start.*?[:：]?\s*(\d+\.?\d*)', analysis_text)
+        end_match = re.search(r'end.*?[:：]?\s*(\d+\.?\d*|null|None)', analysis_text)
+        
+        if start_match:
+            try:
+                params['start'] = float(start_match.group(1))
+            except ValueError:
+                pass
+        
+        if end_match:
+            end_str = end_match.group(1)
+            if end_str not in ['null', 'None', 'none']:
+                try:
+                    params['end'] = float(end_str)
+                except ValueError:
+                    pass
+            else:
+                params['end'] = None
+        
+        if params:
+            logger.info(f"提取裁剪参数: {params}")
+            return params
+    
+    # 策略3: 关键词推断（用于factor类型的参数）
+    if operation_name in ['adjust_speed', 'adjust_brightness', 'adjust_contrast', 'adjust_volume']:
+        param_name = 'factor'
+        
+        # 根据描述性关键词推断
+        inference_rules = {
+            'adjust_speed': {
+                ('很慢', '拖沓', '缓慢'): 2.0,
+                ('较慢', '偏慢'): 1.5,
+                ('略慢', '稍慢'): 1.2,
+                ('很快', '急促'): 0.6,
+                ('较快', '偏快'): 0.75,
+            },
+            'adjust_brightness': {
+                ('很暗', '昏暗', '漆黑'): 1.6,
+                ('较暗', '偏暗', '有点暗'): 1.3,
+                ('略暗', '稍暗'): 1.15,
+                ('很亮', '过曝', '刺眼'): 0.7,
+                ('较亮', '偏亮', '有点亮'): 0.85,
+            },
+            'adjust_contrast': {
+                ('灰蒙', '模糊', '对比度低'): 1.3,
+                ('过于鲜明', '对比度高'): 0.8,
+            },
+            'adjust_volume': {
+                ('很小', '听不清', '太轻'): 2.0,
+                ('较小', '偏小', '有点小'): 1.5,
+                ('很大', '太吵', '刺耳'): 0.5,
+                ('较大', '偏大', '有点大'): 0.7,
+            },
+        }
+        
+        if operation_name in inference_rules:
+            for keywords, value in inference_rules[operation_name].items():
+                if any(kw in analysis_text for kw in keywords):
+                    params[param_name] = value
+                    logger.info(f"关键词推断参数: {param_name}={value}")
+                    return params
+    
+    # 策略4: 兜底 - 使用智能默认值
+    logger.info("视频分析未能提取参数，尝试使用智能默认值")
+    params = _apply_smart_defaults(user_input, operation_name, params)
+    
+    return params
+
+
+def _clamp_param_value(param_name: str, value: Any, operation_name: str) -> Any:
+    """
+    限制参数值在合理范围内
+    
+    Args:
+        param_name: 参数名
+        value: 参数值
+        operation_name: 操作名称
+        
+    Returns:
+        限制后的参数值
+    """
+    if operation_name not in PARAM_RANGES:
+        return value
+    
+    if param_name not in PARAM_RANGES[operation_name]:
+        return value
+    
+    min_val, max_val = PARAM_RANGES[operation_name][param_name]
+    
+    if isinstance(value, (int, float)):
+        clamped = max(min_val, min(max_val, value))
+        if clamped != value:
+            logger.warning(f"参数值 {param_name}={value} 超出范围，已限制为 {clamped}")
+        return clamped
+    
+    return value
+
+
+def _infer_params_from_video(
+    operation_name: str,
+    video_path: str,
+    user_input: str,
+    current_params: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    通过视频理解自动推断参数
+    
+    这是参数推断的主入口函数，整合了：
+    1. 视频内容理解
+    2. 参数提取
+    3. 智能默认值
+    4. 范围限制
+    
+    Args:
+        operation_name: 操作名称
+        video_path: 视频文件路径
+        user_input: 用户的原始输入
+        current_params: 当前已有的参数
+        
+    Returns:
+        Dict: 推断后的参数字典
+    """
+    logger.info(f"开始为操作 '{operation_name}' 推断参数，视频: {video_path}")
+    
+    inferred_params = {}
+    
+    # 步骤1: 检查是否有该操作的推断提示词
+    if operation_name in PARAM_INFERENCE_PROMPTS:
+        try:
+            from .video_comprehension import comprehend_video
+            
+            # 构建分析提示词
+            prompt_template = PARAM_INFERENCE_PROMPTS[operation_name]
+            prompt = prompt_template.format(user_input=user_input)
+            
+            logger.info(f"调用视频理解API进行参数推断...")
+            logger.info(f"分析提示词: {prompt[:100]}...")
+            
+            # 调用视频理解
+            analysis_result = comprehend_video(
+                video_path=video_path,
+                prompt=prompt,
+                use_base64=True  # 使用base64编码
+            )
+            
+            logger.info(f"视频分析结果: {analysis_result}")
+            
+            # 步骤2: 从分析结果中提取参数
+            inferred_params = _extract_params_from_analysis(
+                analysis_result,
+                operation_name,
+                user_input
+            )
+            
+        except Exception as e:
+            logger.error(f"视频理解调用失败: {e}")
+            logger.info("将使用智能默认值作为兜底")
+    
+    # 步骤3: 如果视频理解失败，使用智能默认值
+    if not inferred_params:
+        logger.info("视频理解未能推断参数，使用智能默认值")
+        inferred_params = _apply_smart_defaults(user_input, operation_name, {})
+    
+    # 步骤4: 如果还是没有参数，使用操作定义中的默认值
+    if not inferred_params:
+        logger.info("使用操作配置中的默认值")
+        op_def = OPERATIONS.get(operation_name, {})
+        op_params = op_def.get('params', {})
+        for param_name, param_info in op_params.items():
+            if param_info.get('default') is not None:
+                inferred_params[param_name] = param_info['default']
+    
+    # 步骤5: 限制参数值在合理范围内
+    for param_name, param_value in inferred_params.items():
+        inferred_params[param_name] = _clamp_param_value(
+            param_name,
+            param_value,
+            operation_name
+        )
+    
+    logger.info(f"参数推断完成: {inferred_params}")
+    return inferred_params
+
 
 class DialogueManager:
     """对话管理器，用于处理用户交互和生成自然语言响应"""

@@ -13,6 +13,13 @@ from .config import (
     InstructionType,
 )
 
+from .demo_config import (
+    get_demo_video_path,
+    is_demo_mode_enabled,
+    DEMO_VIDEO_DIR,
+    DEMO_INSTRUCTIONS,
+)
+
 __all__ = [
     'QWEN_API_KEY',
     'QWEN_BASE_CHAT_URL',
@@ -21,6 +28,10 @@ __all__ = [
     'OPERATIONS',
     'SYSTEM_PROMPT_JSON',
     'InstructionType',
+    'get_demo_video_path',
+    'is_demo_mode_enabled',
+    'DEMO_VIDEO_DIR',
+    'DEMO_INSTRUCTIONS',
 ]
 
 

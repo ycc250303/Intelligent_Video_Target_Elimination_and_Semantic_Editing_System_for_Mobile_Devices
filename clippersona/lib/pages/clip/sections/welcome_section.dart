@@ -4,12 +4,14 @@ class WelcomeSection extends StatelessWidget {
   final VoidCallback onStartConversation;
   final VoidCallback onStyleCardMode;
   final VoidCallback onCreateStyleCardMode;
+  final VoidCallback? onTrainStyleCard;
 
   const WelcomeSection({
     super.key,
     required this.onStartConversation,
     required this.onStyleCardMode,
     required this.onCreateStyleCardMode,
+    this.onTrainStyleCard,
   });
 
   @override

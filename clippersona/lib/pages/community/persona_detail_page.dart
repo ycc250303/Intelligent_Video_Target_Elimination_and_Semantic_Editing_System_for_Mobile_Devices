@@ -175,7 +175,8 @@ class _PersonaDetailPageState extends State<PersonaDetailPage> {
                                         children: [
                                           Expanded(
                                             child: Text(
-                                              widget.persona['title'] ?? '搞笑弹幕',
+                                              widget.persona['title'] ??
+                                                  '风格卡详情',
                                               style: TextStyle(
                                                 fontSize: 24,
                                                 fontWeight: FontWeight.bold,

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'sections/posts_section.dart';
 import 'widgets/community_header.dart';
 import 'persona_detail_page.dart';
+import '../persona/models/persona_models.dart';
+import '../../services/avatar_service.dart';
+import '../../services/style_card_service.dart';
 
 class CommunityPage extends StatefulWidget {
   const CommunityPage({super.key});
@@ -11,35 +14,99 @@ class CommunityPage extends StatefulWidget {
 }
 
 class _CommunityPageState extends State<CommunityPage> {
-  final List<Map<String, dynamic>> _posts = [
-    {
-      'user': '剪辑大师',
-      'avatar': 'assets/communityPage/persona.png',
-      'time': '2小时前',
-      'content': '分享一个超实用的剪辑技巧，让你的视频更有层次感！',
-      'likes': 128,
-      'comments': 23,
-      'image': 'assets/communityPage/persona.png',
-    },
-    {
-      'user': '视频达人',
-      'avatar': 'assets/communityPage/persona.png',
-      'time': '5小时前',
-      'content': '今天用新功能制作了一个创意视频，效果太棒了！',
-      'likes': 89,
-      'comments': 15,
-      'image': 'assets/communityPage/persona.png',
-    },
-    {
-      'user': '创意设计师',
-      'avatar': 'assets/communityPage/persona.png',
-      'time': '1天前',
-      'content': '推荐几个超好用的素材网站，免费高质量！',
-      'likes': 256,
-      'comments': 67,
-      'image': 'assets/communityPage/persona.png',
-    },
-  ];
+  String? _userAvatarPath; // 用户头像路径
+  List<StyleCard> _sharedStyleCards = [];
+  List<Map<String, dynamic>> _posts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
+
+    // 监听头像变化
+    AvatarService.avatarPathNotifier.addListener(_onAvatarChanged);
+    // 监听风格卡变化
+    StyleCardService.styleCardsNotifier.addListener(_onStyleCardsChanged);
+  }
+
+  @override
+  void dispose() {
+    AvatarService.avatarPathNotifier.removeListener(_onAvatarChanged);
+    StyleCardService.styleCardsNotifier.removeListener(_onStyleCardsChanged);
+    super.dispose();
+  }
+
+  /// 初始化数据加载
+  Future<void> _initialize() async {
+    await _loadUserAvatar();
+    _loadSharedStyleCards();
+  }
+
+  /// 风格卡变化回调
+  void _onStyleCardsChanged() {
+    if (mounted) {
+      _loadSharedStyleCards();
+    }
+  }
+
+  /// 加载用户头像
+  Future<void> _loadUserAvatar() async {
+    final avatarPath = await AvatarService.getAvatarPath();
+    if (mounted) {
+      setState(() {
+        _userAvatarPath = avatarPath;
+      });
+    }
+  }
+
+  /// 头像变化回调
+  void _onAvatarChanged() {
+    if (mounted) {
+      final newAvatarPath = AvatarService.avatarPathNotifier.value;
+      setState(() {
+        _userAvatarPath = newAvatarPath;
+
+        // 更新已经存在的"我"的帖子的头像
+        for (var post in _posts) {
+          if (post['user'] == '我') {
+            post['avatar'] = newAvatarPath ?? 'assets/personaPage/robot.png';
+          }
+        }
+      });
+    }
+  }
+
+  /// 加载共享的风格卡并添加到 posts 列表
+  void _loadSharedStyleCards() {
+    if (!mounted) return;
+
+    setState(() {
+      // 从StyleCardService获取共享的风格卡
+      _sharedStyleCards = StyleCardService.getSharedStyleCards();
+
+      // 清空现有的风格卡帖子
+      _posts.removeWhere((post) => post['isStyleCard'] == true);
+
+      // 将共享的风格卡转换为 post 格式
+      for (var styleCard in _sharedStyleCards) {
+        _posts.insert(0, {
+          'title': styleCard.title,
+          'user': '我', // 当前用户
+          'avatar':
+              _userAvatarPath ?? 'assets/personaPage/robot.png', // 使用用户头像或默认头像
+          'time': '刚刚',
+          'content': styleCard.title,
+          'likes': styleCard.comments,
+          'comments': styleCard.comments,
+          'image': styleCard.imageUrl.isEmpty
+              ? 'assets/communityPage/persona.png' // 默认风格卡图片
+              : styleCard.imageUrl,
+          'isStyleCard': true, // 标记这是风格卡
+          'styleCard': styleCard, // 保存原始风格卡数据
+        });
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../models/message.dart';
 import '../../models/project_models.dart';
+import '../../models/operation_record.dart';
 import '../../services/project_service.dart';
 import '../../services/backend_session_service.dart';
 import '../../services/avatar_service.dart';
@@ -15,8 +16,11 @@ import 'widgets/chat_input.dart';
 import 'widgets/delete_dialog.dart';
 import 'widgets/clip_app_bar.dart';
 import 'widgets/media_preview_bar.dart';
+import 'widgets/apply_style_card_dialog.dart';
 import 'sections/history_sidebar.dart';
 import 'sections/chat_messages_section.dart';
+import 'create_style_card_export_page.dart';
+import '../persona/models/persona_models.dart' as persona;
 
 class ClipPage extends StatefulWidget {
   final String? projectId;
@@ -39,6 +43,11 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   late AnimationController _historyAnimationController;
   late Animation<double> _historySlideAnimation;
 
+  // 创建风格卡模式相关
+  bool _isCreatingStyleCard = false; // 是否处于创建风格卡模式
+  final List<OperationRecord> _styleCardOperations = []; // 记录的操作历史（包含函数调用信息）
+  String? _lastUserInstruction; // 最后一条用户指令（用于关联任务结果）
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +55,9 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     _loadHistoryProjects();
     _loadUserAvatar();
     _initializeAnimations();
+
+    // 监听头像变化
+    AvatarService.avatarPathNotifier.addListener(_onAvatarChanged);
   }
 
   // 加载用户头像
@@ -54,6 +66,15 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     if (mounted) {
       setState(() {
         _userAvatarPath = avatarPath;
+      });
+    }
+  }
+
+  // 头像变化回调
+  void _onAvatarChanged() {
+    if (mounted) {
+      setState(() {
+        _userAvatarPath = AvatarService.avatarPathNotifier.value;
       });
     }
   }
@@ -91,6 +112,7 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   void dispose() {
     _scrollController.dispose();
     _historyAnimationController.dispose();
+    AvatarService.avatarPathNotifier.removeListener(_onAvatarChanged);
     super.dispose();
   }
 
@@ -142,9 +164,22 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
 
     print('📤 发送消息 - 文本: $hasText, 视频: $hasVideo, 图片: $hasImage');
 
+    // 如果处于创建风格卡模式，保存用户指令（稍后在任务完成时记录完整操作）
+    if (_isCreatingStyleCard && text.trim().isNotEmpty) {
+      _lastUserInstruction = text.trim();
+      print('📝 保存用户指令: ${text.trim()}');
+    }
+
     // 如果是新对话且还没有项目ID，创建新项目
-    if (_currentProjectId == null) {
+    final bool isFirstMessage = _currentProjectId == null;
+    if (isFirstMessage) {
       await _createNewProjectWithBackend();
+      await _loadHistoryProjects(); // 更新历史项目列表，隐藏欢迎页面
+    }
+
+    // 如果是第一条消息且有文本内容，更新项目标题为用户输入的指令
+    if (isFirstMessage && text.trim().isNotEmpty && _currentProjectId != null) {
+      await _updateProjectTitle(text.trim());
     }
 
     // 将暂存的媒体转换为 MessageMedia 列表
@@ -335,6 +370,46 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
         if (taskStatus.isCompleted) {
           print('✅ 任务完成！outputPath: ${taskStatus.outputPath}');
           print('   outputType: ${taskStatus.outputType}');
+          print('   functionCall: ${taskStatus.functionCall}');
+          print('🔍 操作记录检查:');
+          print('   _isCreatingStyleCard: $_isCreatingStyleCard');
+          print('   _lastUserInstruction: $_lastUserInstruction');
+          print('   taskStatus.functionCall: ${taskStatus.functionCall}');
+
+          // 如果处于创建风格卡模式且有用户指令和函数调用信息，记录操作
+          if (_isCreatingStyleCard &&
+              _lastUserInstruction != null &&
+              taskStatus.functionCall != null) {
+            try {
+              final functionCall = FunctionCall(
+                functionName:
+                    taskStatus.functionCall!['functionName'] as String,
+                parameters: Map<String, dynamic>.from(
+                  taskStatus.functionCall!['parameters'] as Map,
+                ),
+              );
+
+              final operation = OperationRecord(
+                userInstruction: _lastUserInstruction!,
+                functionCalls: [functionCall],
+              );
+
+              _styleCardOperations.add(operation);
+              print(
+                '📝 记录风格卡操作成功: ${operation.userInstruction} -> ${functionCall.functionName}',
+              );
+              print('   当前操作总数: ${_styleCardOperations.length}');
+              _lastUserInstruction = null; // 清空已记录的指令
+            } catch (e) {
+              print('⚠️ 记录风格卡操作失败: $e');
+            }
+          } else {
+            print('⚠️ 操作未被记录，原因:');
+            if (!_isCreatingStyleCard) print('   - 不在创建风格卡模式');
+            if (_lastUserInstruction == null) print('   - 没有用户指令');
+            if (taskStatus.functionCall == null)
+              print('   - 后端未返回function_call');
+          }
 
           final mediaUrl = taskStatus.effectiveMediaUrl;
           if (mediaUrl != null && mediaUrl.isNotEmpty) {
@@ -528,21 +603,74 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
     }
   }
 
-  // 新建对话
+  // 新建对话或返回首页
   Future<void> _createNewConversation() async {
+    // 如果有活跃会话，显示选择对话框
+    if (_currentProjectId != null) {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('选择操作'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.add_circle, color: Colors.blue),
+                  title: const Text('新建会话'),
+                  subtitle: const Text('开始新的剪辑对话'),
+                  onTap: () => Navigator.pop(context, 'new'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.home, color: Colors.green),
+                  title: const Text('返回首页'),
+                  subtitle: const Text('返回欢迎页面选择模式'),
+                  onTap: () => Navigator.pop(context, 'home'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (choice == 'new') {
+        // 创建新会话
     await _createNewProjectWithBackend();
     setState(() {
       _messages.clear();
       _isHistoryOpen = false;
-    });
-    _loadHistoryProjects(); // 重新加载历史项目
+          _isCreatingStyleCard = false; // 退出创建风格卡模式
+          _styleCardOperations.clear();
+        });
+        _loadHistoryProjects();
+      } else if (choice == 'home') {
+        // 返回首页（欢迎页面）
+        setState(() {
+          _currentProjectId = null;
+          _messages.clear();
+          _pendingMedia.clear();
+          _isHistoryOpen = false;
+          _isCreatingStyleCard = false; // 退出创建风格卡模式
+          _styleCardOperations.clear();
+          _historyProjects = []; // 清空历史项目列表，显示欢迎页面
+        });
+      }
+    } else {
+      // 没有活跃会话，直接创建新会话
+      await _createNewProjectWithBackend();
+      setState(() {
+        _messages.clear();
+        _isHistoryOpen = false;
+      });
+      _loadHistoryProjects();
+    }
   }
 
   // 创建新项目并同步到后端
   Future<void> _createNewProjectWithBackend() async {
     // 1. 在后端创建会话
     final backendProject = await BackendSessionService.createSession(
-      '新对话 ${_formatDateTime(DateTime.now())}',
+      '新会话 ${_formatDateTime(DateTime.now())}',
       '🎬',
     );
 
@@ -560,6 +688,41 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       setState(() {
         _currentProjectId = project.id;
       });
+    }
+  }
+
+  // 更新项目标题
+  Future<void> _updateProjectTitle(String newTitle) async {
+    if (_currentProjectId == null) return;
+
+    try {
+      // 1. 获取当前项目
+      final currentProject = await ProjectService.instance.getProjectById(
+        _currentProjectId!,
+      );
+
+      if (currentProject != null) {
+        // 2. 截取前20个字符作为标题（避免标题过长）
+        final truncatedTitle = newTitle.length > 20
+            ? '${newTitle.substring(0, 20)}...'
+            : newTitle;
+
+        // 3. 更新项目标题
+        final updatedProject = currentProject.copyWith(
+          title: truncatedTitle,
+          updatedAt: DateTime.now(),
+        );
+
+        // 4. 保存到本地
+        await ProjectService.instance.saveProject(updatedProject);
+
+        // 5. 重新加载历史项目列表以更新UI
+        await _loadHistoryProjects();
+
+        print('✅ 项目标题已更新: $truncatedTitle');
+      }
+    } catch (e) {
+      print('❌ 更新项目标题失败: $e');
     }
   }
 
@@ -694,17 +857,516 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
   }
 
   // 调用风格卡模式
-  void _onStyleCardMode() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('调用风格卡功能开发中...')));
+  Future<void> _onStyleCardMode() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => const ApplyStyleCardDialog(),
+    );
+
+    if (result != null) {
+      final styleCard = result['styleCard'] as persona.StyleCard;
+      final videoPath = result['videoPath'] as String;
+
+      // 立即显示加载提示，不等待异步操作
+      // 这样对话框关闭后，用户会立即看到"正在准备..."的消息
+      if (mounted) {
+        setState(() {
+          // 强制刷新，准备进入聊天模式
+        });
+      }
+
+      await _applyStyleCardToVideo(styleCard, videoPath);
+    }
+  }
+
+  /// 应用风格卡到新视频
+  Future<void> _applyStyleCardToVideo(
+    persona.StyleCard styleCard,
+    String videoPath,
+  ) async {
+    try {
+      print('🎨 开始应用风格卡: ${styleCard.title} 到视频: $videoPath');
+
+      // 1. 先创建新会话（如果没有），确保有 projectId
+      if (_currentProjectId == null) {
+        await _createNewProjectWithBackend();
+        print('✅ 会话已创建: $_currentProjectId');
+
+        // 创建会话后，立即刷新界面以显示聊天区域
+        if (mounted) {
+          setState(() {
+            // 此时 hasActiveSession 变为 true，会显示聊天界面
+          });
+          // 等待界面渲染
+          await Future.delayed(const Duration(milliseconds: 50));
+        }
+      }
+
+      // 2. 添加"准备中"消息
+      final preparingMessage = Message(
+        id: 'preparing_${DateTime.now().millisecondsSinceEpoch}',
+        content: '正在准备应用风格卡 "${styleCard.title}"...',
+        sender: MessageSender.bot,
+        timestamp: DateTime.now(),
+        type: MessageType.text,
+      );
+
+      // 3. 添加准备消息并刷新界面
+      if (mounted) {
+        setState(() {
+          _messages.add(preparingMessage);
+        });
+        _scrollToBottom();
+        // 等待一帧，确保界面已更新
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      // 4. 准备视频数据（用于上传到后端）
+      // 生成缩略图
+      String? thumbnailPath;
+      try {
+        final tempDir = await getTemporaryDirectory();
+        thumbnailPath = await VideoThumbnail.thumbnailFile(
+          video: videoPath,
+          thumbnailPath: tempDir.path,
+          imageFormat: ImageFormat.JPEG,
+          maxWidth: 400,
+          quality: 75,
+        );
+        print('✅ 缩略图生成成功: $thumbnailPath');
+      } catch (e) {
+        print('⚠️ 生成视频缩略图失败: $e');
+      }
+
+      // 创建视频项目（仅用于上传，不添加到缓冲区）
+      final videoItem = MediaItem(
+        path: videoPath,
+        type: MediaType.video,
+        thumbnailPath: thumbnailPath,
+      );
+
+      // 临时存储视频，用于上传
+      final List<MediaItem> tempVideoList = [videoItem];
+
+      // 5. 更新准备消息为执行消息
+      final preparingIndex = _messages.indexWhere(
+        (m) => m.id.startsWith('preparing_'),
+      );
+      if (preparingIndex != -1 && mounted) {
+        setState(() {
+          _messages[preparingIndex] = Message(
+            id: _messages[preparingIndex].id,
+            content:
+                '✅ 准备完成！\n开始应用风格卡 "${styleCard.title}"，将执行 ${styleCard.operations.length} 个操作',
+            sender: MessageSender.bot,
+            timestamp: DateTime.now(),
+            type: MessageType.text,
+          );
+        });
+        _scrollToBottom();
+      }
+
+      // 6. 批量执行风格卡的操作
+      for (int i = 0; i < styleCard.operations.length; i++) {
+        final operation = styleCard.operations[i];
+        print(
+          '📝 执行操作 ${i + 1}/${styleCard.operations.length}: ${operation.userInstruction}',
+        );
+
+        // 更新进度消息
+        final progressMessage = Message(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          content:
+              '[${i + 1}/${styleCard.operations.length}] ${operation.userInstruction}',
+          sender: MessageSender.user,
+          timestamp: DateTime.now(),
+          type: MessageType.text,
+        );
+
+        setState(() {
+          _messages.add(progressMessage);
+        });
+
+        _scrollToBottom();
+
+        // 创建等待响应的消息
+        final botMessageId = DateTime.now().millisecondsSinceEpoch.toString();
+        final botMessage = Message(
+          id: botMessageId,
+          content: '',
+          sender: MessageSender.bot,
+          timestamp: DateTime.now(),
+          type: MessageType.text,
+        );
+
+        setState(() {
+          _messages.add(botMessage);
+        });
+
+        // 调用后端执行操作（第一个操作时上传视频）
+        final taskId = await _submitStyleCardOperationToBackend(
+          operation,
+          i == 0 ? tempVideoList : null, // 仅第一个操作上传视频
+          styleCard.title, // 传递风格卡名称
+        );
+
+        if (taskId != null) {
+          _pollTaskStatus(taskId, botMessageId);
+
+          // 等待当前操作完成再执行下一个
+          await _waitForTaskCompletion(taskId);
+        } else {
+          // 更新消息显示错误
+          final msgIndex = _messages.indexWhere((m) => m.id == botMessageId);
+          if (msgIndex != -1) {
+            setState(() {
+              _messages[msgIndex] = Message(
+                id: botMessageId,
+                content: '操作执行失败',
+                sender: MessageSender.bot,
+                timestamp: DateTime.now(),
+                type: MessageType.text,
+              );
+            });
+          }
+        }
+      }
+
+      // 7. 完成提示
+      final completeMessage = Message(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        content: '✅ 风格卡 "${styleCard.title}" 应用完成！\n您可以继续编辑或完善此风格卡',
+        sender: MessageSender.bot,
+        timestamp: DateTime.now(),
+        type: MessageType.text,
+      );
+
+      setState(() {
+        _messages.add(completeMessage);
+        // 确保输入缓冲区为空
+        _pendingMedia.clear();
+      });
+
+      _scrollToBottom();
+
+      print('✅ 风格卡应用完成，输入缓冲区已清空');
+    } catch (e) {
+      print('❌ 应用风格卡失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('应用风格卡失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  /// 提交风格卡操作到后端
+  Future<String?> _submitStyleCardOperationToBackend(
+    OperationRecord operation,
+    List<MediaItem>? videoList, // 直接传入视频列表，而不是从_pendingMedia读取
+    String? styleCardName, // 风格卡名称（用于Demo模式检测）
+  ) async {
+    try {
+      if (operation.functionCalls.isEmpty) {
+        print('⚠️ 操作没有函数调用信息: ${operation.userInstruction}');
+        return null;
+      }
+
+      final functionCall = operation.functionCalls.first;
+
+      // 调用后端 API
+      final taskId = await BackendSessionService.processMultimodalInput(
+        sessionId: _currentProjectId!,
+        text: operation.userInstruction,
+        functionName: functionCall.functionName,
+        functionParams: functionCall.parameters,
+        videos: videoList != null
+            ? videoList
+                  .where((m) => m.type == MediaType.video)
+                  .map((m) => m.path)
+                  .toList()
+            : null,
+        styleCardName: styleCardName, // 传递风格卡名称
+      );
+
+      return taskId;
+    } catch (e) {
+      print('❌ 提交操作失败: $e');
+      return null;
+    }
+  }
+
+  /// 等待任务完成
+  Future<void> _waitForTaskCompletion(String taskId) async {
+    const maxWaitTime = Duration(seconds: 60);
+    const pollInterval = Duration(seconds: 2);
+    final startTime = DateTime.now();
+
+    while (DateTime.now().difference(startTime) < maxWaitTime) {
+      final taskStatus = await BackendSessionService.getTaskStatus(taskId);
+
+      if (taskStatus == null) {
+        print('⚠️ 无法获取任务状态: $taskId');
+        await Future.delayed(pollInterval);
+        continue;
+      }
+
+      if (taskStatus.isCompleted) {
+        print('✅ 任务完成: $taskId');
+        return;
+      }
+
+      if (taskStatus.status == 'error') {
+        print('❌ 任务失败: $taskId');
+        throw Exception(taskStatus.errorMessage ?? '任务执行失败');
+      }
+
+      await Future.delayed(pollInterval);
+    }
+
+    throw Exception('任务超时');
   }
 
   // 创建风格卡模式
-  void _onCreateStyleCardMode() {
+  Future<void> _onCreateStyleCardMode() async {
+    // 进入创建风格卡模式
+    setState(() {
+      _isCreatingStyleCard = true;
+      _styleCardOperations.clear(); // 清空操作记录
+    });
+
+    // 检查权限
+    if (!await _checkAndRequestVideoPermission()) {
+      print('❌ 视频权限被拒绝');
+      setState(() {
+        _isCreatingStyleCard = false;
+      });
+      return;
+    }
+
+    // 显示选择对话框：相机或图库
+    final String? source = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('上传视频创建风格卡'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: Text(
+                  '请上传一个视频作为风格卡训练素材',
+                  style: TextStyle(color: Colors.grey, fontSize: 14),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.videocam, color: Colors.red),
+                title: const Text('拍摄视频'),
+                onTap: () => Navigator.pop(context, 'camera'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.video_library, color: Colors.purple),
+                title: const Text('从图库选择'),
+                onTap: () => Navigator.pop(context, 'gallery'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null) {
+      print('❌ 用户取消选择');
+      setState(() {
+        _isCreatingStyleCard = false;
+      });
+      return;
+    }
+
+    print('📹 创建风格卡 - 选择来源: $source');
+
+    try {
+      String? videoPath;
+
+      if (source == 'camera') {
+        // 使用 image_picker 拍摄视频
+        print('📹 调用相机拍摄视频...');
+        final XFile? pickedFile = await _imagePicker.pickVideo(
+          source: ImageSource.camera,
+          maxDuration: const Duration(minutes: 5),
+        );
+        videoPath = pickedFile?.path;
+        print('📹 拍摄结果: ${videoPath ?? "null"}');
+      } else {
+        // 使用 file_picker 从图库选择
+        print('📹 调用 FilePicker 选择视频...');
+        FilePickerResult? result = await FilePicker.platform.pickFiles(
+          type: FileType.video,
+          allowMultiple: false,
+        );
+
+        if (result != null && result.files.single.path != null) {
+          videoPath = result.files.single.path!;
+          print('📹 FilePicker 返回: $videoPath');
+        } else {
+          print('❌ FilePicker 返回 null');
+        }
+      }
+
+      if (videoPath != null) {
+        print('✅ 视频选择成功: $videoPath');
+
+        // 创建新项目（如果还没有）
+        if (_currentProjectId == null) {
+          await _createNewProjectWithBackend();
+          await _loadHistoryProjects(); // 更新历史项目列表，隐藏欢迎页面
+        }
+
+        // 生成视频缩略图
+        String? thumbnailPath;
+        try {
+          print('📸 生成视频缩略图...');
+          final tempDir = await getTemporaryDirectory();
+          thumbnailPath = await VideoThumbnail.thumbnailFile(
+            video: videoPath,
+            thumbnailPath: tempDir.path,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 400,
+            quality: 75,
+          );
+          print('✅ 缩略图生成成功: $thumbnailPath');
+        } catch (e) {
+          print('⚠️ 生成视频缩略图失败: $e');
+        }
+
+        // 清空暂存区并添加新视频（创建风格卡模式只允许一个视频）
+        setState(() {
+          _pendingMedia.clear(); // 清空之前的媒体
+          _pendingMedia.add(
+            MediaItem(
+              path: videoPath!,
+              type: MediaType.video,
+              thumbnailPath: thumbnailPath,
+            ),
+          );
+        });
+
+        // 显示提示消息
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('视频已添加，现在可以开始对话编辑创建风格卡'),
+              backgroundColor: Color(0xFF10B981),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+
+        // 添加系统提示消息
+        setState(() {
+          _messages.add(
+            Message(
+              id: 'create_style_card_${DateTime.now().millisecondsSinceEpoch}',
+              content:
+                  '✅ 已上传视频，您现在可以通过对话来编辑这个视频并创建风格卡。\n\n'
+                  '📝 示例指令：\n'
+                  '• "将这个视频调整为快节奏风格"\n'
+                  '• "添加转场效果"\n'
+                  '• "调整色调为暖色系"\n'
+                  '• "裁剪为竖屏"\n\n'
+                  '💡 完成编辑后，点击右上角"导出"按钮保存为风格卡！',
+              type: MessageType.text,
+              sender: MessageSender.bot,
+              timestamp: DateTime.now(),
+            ),
+          );
+        });
+
+        // 滚动到底部
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      } else {
+        // 用户取消选择视频，退出创建风格卡模式
+        setState(() {
+          _isCreatingStyleCard = false;
+        });
+      }
+    } catch (e) {
+      print('❌ 选择视频失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('选择视频失败: $e'), backgroundColor: Colors.red),
+        );
+        setState(() {
+          _isCreatingStyleCard = false;
+        });
+      }
+    }
+  }
+
+  // 返回欢迎页面
+  void _backToWelcome() {
+    setState(() {
+      _currentProjectId = null;
+      _messages.clear();
+      _pendingMedia.clear();
+      _isHistoryOpen = false;
+      _isCreatingStyleCard = false;
+      _styleCardOperations.clear();
+      _historyProjects = []; // 清空历史项目列表，显示欢迎页面
+    });
+  }
+
+  // 导出风格卡
+  Future<void> _exportStyleCard() async {
+    if (_styleCardOperations.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请先进行一些视频编辑操作'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // 导入导出页面
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            CreateStyleCardExportPage(operations: _styleCardOperations),
+      ),
+    );
+
+    // 如果成功创建风格卡
+    if (result == 'exit_to_welcome' && mounted) {
+      // 退出到欢迎页面：清空所有状态
+      setState(() {
+        _isCreatingStyleCard = false;
+        _styleCardOperations.clear();
+        _currentProjectId = null;
+        _messages.clear();
+        _pendingMedia.clear();
+        _isHistoryOpen = false;
+        _historyProjects = []; // 清空历史项目列表，显示欢迎页面
+      });
+    }
+  }
+
+  // 训练风格卡模式
+  void _onTrainStyleCard() {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('创建风格卡功能开发中...')));
+    ).showSnackBar(const SnackBar(content: Text('训练风格卡功能开发中...')));
+    // TODO: 后续实现训练风格卡的逻辑
   }
 
   /// 检查并请求图片权限
@@ -981,6 +1643,7 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
         // 如果是新对话且还没有项目ID，创建新项目
         if (_currentProjectId == null) {
           await _createNewProjectWithBackend();
+          await _loadHistoryProjects(); // 更新历史项目列表，隐藏欢迎页面
         }
 
         // 生成视频缩略图
@@ -1089,8 +1752,18 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       appBar: ClipAppBar(
         onHistoryTap: _toggleHistory,
         onNewConversationTap: _createNewConversation,
-        // 有会话时显示"新会话"，无会话时显示默认的"工作台"
-        title: hasActiveSession ? '新会话' : null,
+        onExportStyleCard: _exportStyleCard,
+        onBackToWelcome: _backToWelcome,
+        // 根据状态决定模式和标题
+        mode: _isCreatingStyleCard
+            ? ClipAppBarMode.createStyleCard
+            : ClipAppBarMode.normal,
+        // 创建风格卡模式显示"创建风格卡"，有会话时显示"新会话"，否则显示默认的"工作台"
+        title: _isCreatingStyleCard
+            ? null // 让AppBar根据mode自动决定标题
+            : (hasActiveSession ? '新会话' : null),
+        // 如果有活跃会话，显示回退按钮
+        showBackButton: hasActiveSession,
       ),
       body: Stack(
         children: [
@@ -1105,6 +1778,7 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
                   onStartConversation: _startConversation,
                   onStyleCardMode: _onStyleCardMode,
                   onCreateStyleCardMode: _onCreateStyleCardMode,
+                  onTrainStyleCard: _onTrainStyleCard,
                   userAvatarPath: _userAvatarPath,
                   onRemoveFromBuffer: _removeMediaFromBufferByPath,
                 ),

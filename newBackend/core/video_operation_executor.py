@@ -254,6 +254,7 @@ class VideoOperationExecutor:
             'loop': 'loop',
             'reverse': 'reverse',
             'add_subtitle': 'add_subtitle',
+            'make_black_and_white': 'make_black_and_white',  # 黑白效果
             # Qwen AI生成操作
             'make_video_by_text': 'make_video_by_text',
             'make_video_by_first_frame': 'make_video_by_first_frame',

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'main_navigation.dart';
 import 'config/locale_manager.dart';
 import 'services/backend_session_service.dart';
+import 'services/style_card_service.dart';
 
 // 全局标记：是否已完成初始化
 bool _isInitialized = false;
@@ -13,28 +14,47 @@ void main() {
   runApp(const MyApp());
 }
 
-/// 应用初始化（清空所有会话和缓存）
+/// 应用初始化（清空所有会话和缓存，加载风格卡）
 Future<void> _initializeApp() async {
   if (_isInitialized) return; // 避免重复初始化
 
   try {
-    print('🧹 开始清空会话记录...');
+    print('🚀 开始应用初始化...');
 
-    // 1. 清空后端会话（添加5秒超时，避免长时间等待）
-    await BackendSessionService.deleteAllSessions().timeout(
-      const Duration(seconds: 5),
-    );
-    print('✅ 后端会话已清空');
+    // 1. 尝试清空后端会话（可选操作，失败不影响应用启动）
+    try {
+      print('🧹 尝试清空后端会话...');
+      await BackendSessionService.deleteAllSessions().timeout(
+        const Duration(seconds: 3),
+      );
+      print('✅ 后端会话已清空');
+    } catch (e) {
+      print('⚠️ 清空后端会话失败（后端可能未启动）: $e');
+      print('   应用将继续初始化...');
+    }
 
-    // 2. 清空前端本地缓存（SharedPreferences）
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('saved_projects');
-    print('✅ 前端本地缓存已清空');
+    // 2. 清空前端本地项目缓存（SharedPreferences）
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('saved_projects');
+      print('✅ 前端本地项目缓存已清空');
+    } catch (e) {
+      print('⚠️ 清空本地缓存失败: $e');
+    }
 
+    // 3. 初始化风格卡服务（从本地加载风格卡）- 这是关键操作
+    try {
+      await StyleCardService.initialize();
+      print('✅ 风格卡服务已初始化');
+    } catch (e) {
+      print('⚠️ 风格卡服务初始化失败: $e');
+    }
+
+    print('✅ 应用初始化完成');
     _isInitialized = true;
   } catch (e) {
-    print('⚠️ 清空会话失败（可能后端未启动）: $e');
-    _isInitialized = true; // 即使失败也标记为已初始化，避免一直等待
+    print('❌ 应用初始化异常: $e');
+    _isInitialized = true; // 即使失败也标记为已初始化，避免阻塞
   }
 }
 

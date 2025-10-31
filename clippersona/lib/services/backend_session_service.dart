@@ -20,7 +20,7 @@ class BackendSessionService {
   /// 简化版本：不再使用 /api/v2 前缀
   // static const String baseUrl = "http://localhost:8000"; // 🔌 USB调试 (adb reverse tcp:8000 tcp:8000)
   static const String baseUrl =
-      "http://100.80.59.113:8000"; // 真机 - WLAN (校园网会失败)
+      "http://192.168.113.174:8000"; // 真机 - WLAN (校园网会失败)
   // static const String baseUrl = "http://10.0.2.2:8000"; // Android模拟器
 
   /// 获取所有会话（单用户模式）
@@ -246,6 +246,9 @@ class BackendSessionService {
     File? videoFile,
     List<File>? imageFiles,
     bool executeAsync = true,
+    String? functionName,
+    Map<String, dynamic>? functionParams,
+    String? styleCardName, // 新增：风格卡名称（用于Demo模式）
   }) async {
     try {
       var request = http.MultipartRequest(
@@ -257,6 +260,19 @@ class BackendSessionService {
       request.fields['session_id'] = sessionId;
       request.fields['text'] = text;
       request.fields['execute_async'] = executeAsync ? 'true' : 'false';
+
+      // 添加函数调用信息（用于风格卡应用）
+      if (functionName != null) {
+        request.fields['function_name'] = functionName;
+      }
+      if (functionParams != null) {
+        request.fields['function_params'] = jsonEncode(functionParams);
+      }
+
+      // 添加风格卡名称（用于Demo模式检测）
+      if (styleCardName != null) {
+        request.fields['style_card_name'] = styleCardName;
+      }
 
       // 添加视频文件
       if (videoFile != null) {
@@ -330,6 +346,54 @@ class BackendSessionService {
         response: '',
         errorMessage: '网络错误: $e',
       );
+    }
+  }
+
+  /// 便捷方法：处理多模态输入并返回任务ID
+  ///
+  /// 用于风格卡应用等场景，简化调用流程
+  static Future<String?> processMultimodalInput({
+    required String sessionId,
+    required String text,
+    String? functionName,
+    Map<String, dynamic>? functionParams,
+    List<String>? videos,
+    List<String>? images,
+    String? styleCardName, // 新增：风格卡名称
+  }) async {
+    try {
+      // 准备视频文件
+      File? videoFile;
+      if (videos != null && videos.isNotEmpty) {
+        videoFile = File(videos.first);
+      }
+
+      // 准备图片文件
+      List<File>? imageFiles;
+      if (images != null && images.isNotEmpty) {
+        imageFiles = images.map((path) => File(path)).toList();
+      }
+
+      // 调用主方法
+      final result = await processMultimodal(
+        sessionId: sessionId,
+        text: text,
+        videoFile: videoFile,
+        imageFiles: imageFiles,
+        executeAsync: true,
+        functionName: functionName,
+        functionParams: functionParams,
+        styleCardName: styleCardName, // 传递风格卡名称
+      );
+
+      if (result != null && result.success) {
+        return result.taskId;
+      }
+
+      return null;
+    } catch (e) {
+      print('❌ processMultimodalInput 失败: $e');
+      return null;
     }
   }
 
@@ -496,6 +560,7 @@ class TaskStatus {
   final String? outputType; // 新增：输出类型
   final String? errorMessage;
   final double? executionTime;
+  final Map<String, dynamic>? functionCall; // 新增：函数调用信息
 
   TaskStatus({
     required this.taskId,
@@ -507,9 +572,12 @@ class TaskStatus {
     this.outputType,
     this.errorMessage,
     this.executionTime,
+    this.functionCall,
   });
 
   factory TaskStatus.fromJson(Map<String, dynamic> json) {
+    print('🔍 解析TaskStatus: ${json.keys}');
+    print('   function_call字段: ${json['function_call']}');
     return TaskStatus(
       taskId: json['task_id'],
       sessionId: json['session_id'],
@@ -520,6 +588,7 @@ class TaskStatus {
       outputType: json['output_type'],
       errorMessage: json['error_message'],
       executionTime: json['execution_time']?.toDouble(),
+      functionCall: json['function_call'] as Map<String, dynamic>?,
     );
   }
 
