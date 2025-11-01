@@ -1063,44 +1063,61 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
           }
         }
 
-        // 调用后端执行操作（第一个操作时上传视频）
-        final taskId = await _submitStyleCardOperationToBackend(
-          operation,
-          i == 0 ? tempVideoList : null, // 仅第一个操作上传视频
-          styleCard.title, // 传递风格卡名称
-        );
-
-        if (taskId != null) {
-          lastTaskId = taskId; // 保存最后一个任务ID
-          // 等待当前操作完成再执行下一个（不轮询UI更新）
-          await _waitForTaskCompletion(taskId);
-
-          // 如果是"旅行vlog" Demo风格卡，每个操作完成后额外等待10秒
-          if (styleCard.title == '旅行vlog') {
-            print('⏱️  旅行vlog Demo模式：操作 ${i + 1} 完成，等待10秒...');
-            await Future.delayed(const Duration(seconds: 10));
-            print('⏱️  等待完成，继续下一个操作');
-          }
-        } else {
-          // 操作失败
-          if (processingMessageId.isNotEmpty && mounted) {
-            final msgIndex = _messages.indexWhere(
-              (m) => m.id == processingMessageId,
+        // 特殊处理：如果是"旅行vlog"风格卡（Demo模式）
+        if (styleCard.title == '旅行vlog') {
+          // 第一个操作：调用Demo后端获取预设视频
+          if (i == 0) {
+            final taskId = await _submitStyleCardOperationToDemoBackend(
+              tempVideoList,
+              styleCard.title,
             );
-            if (msgIndex != -1) {
-              setState(() {
-                _messages[msgIndex] = Message(
-                  id: processingMessageId,
-                  content: '❌ 操作执行失败：${operation.userInstruction}',
-                  sender: MessageSender.bot,
-                  timestamp: DateTime.now(),
-                  type: MessageType.text,
-                );
-              });
+
+            if (taskId != null) {
+              lastTaskId = taskId;
+              await _waitForTaskCompletion(taskId);
+              print('🎬 旅行vlog Demo模式：已获取预设视频');
             }
           }
-          print('❌ 风格卡应用失败');
-          return;
+
+          // 所有操作：模拟处理并等待10秒
+          print(
+            '⏱️  旅行vlog Demo模式：操作 ${i + 1}/${styleCard.operations.length} 模拟执行中...',
+          );
+          await Future.delayed(const Duration(seconds: 10));
+          print('⏱️  操作 ${i + 1} 完成，继续...');
+        } else {
+          // 普通风格卡：正常执行操作
+          final taskId = await _submitStyleCardOperationToBackend(
+            operation,
+            i == 0 ? tempVideoList : null, // 仅第一个操作上传视频
+            styleCard.title, // 传递风格卡名称
+          );
+
+          if (taskId != null) {
+            lastTaskId = taskId; // 保存最后一个任务ID
+            // 等待当前操作完成再执行下一个（不轮询UI更新）
+            await _waitForTaskCompletion(taskId);
+          } else {
+            // 操作失败
+            if (processingMessageId.isNotEmpty && mounted) {
+              final msgIndex = _messages.indexWhere(
+                (m) => m.id == processingMessageId,
+              );
+              if (msgIndex != -1) {
+                setState(() {
+                  _messages[msgIndex] = Message(
+                    id: processingMessageId,
+                    content: '❌ 操作执行失败：${operation.userInstruction}',
+                    sender: MessageSender.bot,
+                    timestamp: DateTime.now(),
+                    type: MessageType.text,
+                  );
+                });
+              }
+            }
+            print('❌ 风格卡应用失败');
+            return;
+          }
         }
       }
 
@@ -1278,6 +1295,32 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
       return taskId;
     } catch (e) {
       print('❌ 提交操作失败: $e');
+      return null;
+    }
+  }
+
+  /// 提交风格卡到Demo后端（不传递函数调用信息）
+  Future<String?> _submitStyleCardOperationToDemoBackend(
+    List<MediaItem>? videoList,
+    String styleCardName,
+  ) async {
+    try {
+      // 调用后端 API，不传递函数调用信息
+      final taskId = await BackendSessionService.processMultimodalInput(
+        sessionId: _currentProjectId!,
+        text: '应用风格卡: $styleCardName',
+        videos: videoList != null
+            ? videoList
+                  .where((m) => m.type == MediaType.video)
+                  .map((m) => m.path)
+                  .toList()
+            : null,
+        styleCardName: styleCardName, // 只传递风格卡名称，不传递函数信息
+      );
+
+      return taskId;
+    } catch (e) {
+      print('❌ 提交Demo风格卡失败: $e');
       return null;
     }
   }

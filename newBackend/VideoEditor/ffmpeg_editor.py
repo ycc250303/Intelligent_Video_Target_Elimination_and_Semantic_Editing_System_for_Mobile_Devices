@@ -135,26 +135,32 @@ class FFmpegVideoEditor:
             f"已添加转场效果（ffmpeg）：{effect_type}, start={start_time}s, duration={duration}s"
         )
 
-    def make_black_and_white(self, start_time: float = 0.0, duration: float = 3.0):
+    def make_black_and_white(self, start_time: float = 0.0, duration: float = None):
         """
         将视频变为黑白效果。
 
         Args:
             start_time: 开始时间（秒），默认为0
-            duration: 持续时间（秒），默认为1秒
+            duration: 持续时间（秒），None表示到视频结束
         """
-        if duration <= 0:
-            raise ValueError("持续时间必须大于 0")
         if start_time < 0:
             raise ValueError("开始时间不能为负")
 
         total = self._get_video_duration()
         if start_time >= total:
             raise ValueError(f"开始时间 {start_time}s 不能超过或等于视频总时长 {total:.3f}s")
-        if start_time + duration > total:
-            raise ValueError(
-                f"结束时间 {start_time + duration:.3f}s 超过视频总时长 {total:.3f}s，请缩短持续时间或调整开始时间"
-            )
+        
+        # 如果duration为None，则到视频结束
+        if duration is None:
+            duration = total - start_time
+            logger.info(f"duration未指定，将从 {start_time}s 到视频结束（{total:.3f}s）应用黑白效果")
+        else:
+            if duration <= 0:
+                raise ValueError("持续时间必须大于 0")
+            if start_time + duration > total:
+                raise ValueError(
+                    f"结束时间 {start_time + duration:.3f}s 超过视频总时长 {total:.3f}s，请缩短持续时间或调整开始时间"
+                )
 
         # 使用hue过滤器将饱和度设为0，实现黑白效果
         # enable参数控制应用效果的时间段

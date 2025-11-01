@@ -129,9 +129,17 @@ def generate_response_by_type(instruction_type: int, ai_response: str, user_inpu
         # 移除可能的 "action:" 前缀
         clean_response = ai_response.replace("action:", "").strip() if ai_response.strip().startswith("action:") else ai_response
         
+        # 将Python字面量转换为JSON标准格式
+        # None -> null, True -> true, False -> false
+        clean_response = clean_response.replace(': None', ': null')
+        clean_response = clean_response.replace(':None', ':null')
+        clean_response = clean_response.replace(', None', ', null')
+        clean_response = clean_response.replace(',None', ',null')
+        clean_response = clean_response.replace('(None)', '(null)')
+        
         if instruction_type == 1:
             # 第一种情况：按照原规则返回，但需要填充缺失的默认参数
-            response_data = json.loads(clean_response)
+            response_data = safe_json_loads(clean_response)
             operations = response_data.get("operations", {})
             
             if not operations or "operation" not in operations:
@@ -160,7 +168,7 @@ def generate_response_by_type(instruction_type: int, ai_response: str, user_inpu
             
         elif instruction_type == 2:
             # 第二种情况：参数为Unknown/None，需要智能推断
-            response_data = json.loads(clean_response)
+            response_data = safe_json_loads(clean_response)
             operations = response_data["operations"]
             
             # 获取操作定义

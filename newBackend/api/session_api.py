@@ -378,40 +378,41 @@ async def process_multimodal_in_session(
         
         # 定义任务函数
         def process_task():
-            # 🎯 Demo模式检测
-            if is_demo_mode_enabled():
-                # 优先检测Demo风格卡
-                if style_card_name:
-                    from config.demo_config import get_demo_style_card_video
-                    demo_video_path, demo_description = get_demo_style_card_video(style_card_name)
-                    if demo_video_path:
-                        logger.info(f"🎨 检测到Demo风格卡: {style_card_name}，返回预设视频: {demo_video_path}")
-                        
-                        # 生成可访问的URL
-                        _project_root = Path(__file__).parent.parent.parent
-                        try:
-                            newbackend_dir = _project_root / "newBackend"
-                            relative_path = os.path.relpath(demo_video_path, str(newbackend_dir))
-                            media_url = f"/media/{relative_path.replace(os.sep, '/')}"
-                        except ValueError:
-                            filename = os.path.basename(demo_video_path)
-                            media_url = f"/media/demo_videos/{filename}"
-                        
-                        logger.info(f"🎬 Demo风格卡视频URL: {media_url}")
-                        
-                        # 返回demo结果
-                        return {
+            # 🎯 优先检测Demo风格卡（即使全局Demo模式关闭，也检查特定风格卡）
+            if style_card_name:
+                from config.demo_config import get_demo_style_card_video
+                demo_video_path, demo_description = get_demo_style_card_video(style_card_name)
+                if demo_video_path:
+                    logger.info(f"🎨 检测到Demo风格卡: {style_card_name}，返回预设视频: {demo_video_path}")
+                    
+                    # 生成可访问的URL
+                    _project_root = Path(__file__).parent.parent.parent
+                    try:
+                        newbackend_dir = _project_root / "newBackend"
+                        relative_path = os.path.relpath(demo_video_path, str(newbackend_dir))
+                        media_url = f"/media/{relative_path.replace(os.sep, '/')}"
+                    except ValueError:
+                        filename = os.path.basename(demo_video_path)
+                        media_url = f"/media/demo_videos/{filename}"
+                    
+                    logger.info(f"🎬 Demo风格卡视频URL: {media_url}")
+                    
+                    # 返回demo结果
+                    return {
+                        "success": True,
+                        "response": demo_description,
+                        "modal_type": "text+video",
+                        "action": "",
+                        "execution": {
                             "success": True,
-                            "response": demo_description,
-                            "modal_type": "text+video",
-                            "action": "",
-                            "execution": {
-                                "success": True,
-                                "video_url": media_url,
-                                "output_path": demo_video_path
-                            },
-                            "function_call": None
-                        }
+                            "video_url": media_url,
+                            "output_path": demo_video_path
+                        },
+                        "function_call": None
+                    }
+            
+            # 🎯 Demo模式检测（仅对智能剪辑指令生效）
+            if is_demo_mode_enabled():
                 
                 # 检测Demo指令
                 demo_video_path, demo_description, demo_function_call = get_demo_video_path(text)

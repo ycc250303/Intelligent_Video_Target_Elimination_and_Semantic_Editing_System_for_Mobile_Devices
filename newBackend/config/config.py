@@ -138,7 +138,7 @@ OPERATIONS: Dict[str, Dict[str, Any]] = {
             'start_time': {'type': float, 'default': 0.0, 'required': False},
             'duration': {'type': float, 'default': None, 'required': False}
         },
-        'description': '将视频变为黑白效果。',
+        'description': '将视频变为黑白效果。duration为null时表示从start_time到视频结束都应用黑白效果，当用户说"将视频变成黑白"时应该设置duration为null。',
         'supported_editors': 'ffmpeg'
     },
     # ---------------- Qwen 视频生成相关操作（仅解析，不在此处调用API） ----------------
