@@ -19,7 +19,9 @@ class BackendSessionService {
   /// - iOS模拟器/浏览器：使用 localhost
   /// 简化版本：不再使用 /api/v2 前缀
   // static const String baseUrl = "http://localhost:8000"; // 🔌 USB调试 (adb reverse tcp:8000 tcp:8000)
-  static const String baseUrl = "http://192.168.113.174:8000"; // 真机 - WLAN (校园网会失败)
+  static const String baseUrl =
+      "http://192.168.245.174:8000"; // 真机 - WLAN (校园网会失败)
+  // static const String baseUrl = "http://172.18.2.2:8000";
   // static const String baseUrl = "http://10.0.2.2:8000"; // Android模拟器
 
   /// 获取所有会话（单用户模式）

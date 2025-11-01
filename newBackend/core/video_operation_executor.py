@@ -250,9 +250,12 @@ class VideoOperationExecutor:
             'adjust_speed': 'adjust_speed',
             'add_text': 'add_text',
             'adjust_volume': 'adjust_volume',
+            'adjust_brightness': 'adjust_brightness',  # 亮度调整
+            'adjust_contrast': 'adjust_contrast',  # 对比度调整
             'rotate': 'rotate',
             'crop': 'crop',
             'add_background_music': 'add_background_music',
+            'add_audio_segment': 'add_audio_segment',  # 音频片段添加
             'remove_audio': 'remove_audio',
             'extract_audio': 'extract_audio',
             'resize': 'resize',

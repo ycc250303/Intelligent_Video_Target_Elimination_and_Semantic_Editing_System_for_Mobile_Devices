@@ -1083,7 +1083,7 @@ class _ClipPageState extends State<ClipPage> with TickerProviderStateMixin {
           print(
             '⏱️  旅行vlog Demo模式：操作 ${i + 1}/${styleCard.operations.length} 模拟执行中...',
           );
-          await Future.delayed(const Duration(seconds: 10));
+          await Future.delayed(const Duration(seconds: 7));
           print('⏱️  操作 ${i + 1} 完成，继续...');
         } else {
           // 普通风格卡：正常执行操作
