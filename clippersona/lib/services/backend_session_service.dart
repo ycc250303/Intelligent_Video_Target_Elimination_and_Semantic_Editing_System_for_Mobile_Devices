@@ -27,7 +27,7 @@ class BackendSessionService {
   /// 从后端加载所有会话并转换为前端的Project模型
   static Future<List<Project>> loadAllSessions() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/sessions'));
+      final response = await http.get(Uri.parse('$baseUrl/api/sessions'));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -48,11 +48,11 @@ class BackendSessionService {
   static Future<Project?> createSession(String title, String icon) async {
     try {
       print('🔵 开始创建后端会话...');
-      print('🔵 URL: $baseUrl/sessions/create');
+      print('🔵 URL: $baseUrl/api/sessions/create');
       print('🔵 标题: $title, 图标: $icon');
 
       final response = await http.post(
-        Uri.parse('$baseUrl/sessions/create'),
+        Uri.parse('$baseUrl/api/sessions/create'),
         headers: {'Content-Type': 'application/json; charset=utf-8'},
         body: jsonEncode({'title': title, 'icon': icon}),
       );
@@ -78,7 +78,7 @@ class BackendSessionService {
   static Future<Project?> getSession(String sessionId) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/sessions/$sessionId'),
+        Uri.parse('$baseUrl/api/sessions/$sessionId'),
       );
 
       if (response.statusCode == 200) {
@@ -105,7 +105,7 @@ class BackendSessionService {
       if (status != null) body['status'] = StatusMapper.toBackend(status);
 
       final response = await http.put(
-        Uri.parse('$baseUrl/sessions/update'),
+        Uri.parse('$baseUrl/api/sessions/update'),
         headers: {'Content-Type': 'application/json; charset=utf-8'},
         body: jsonEncode(body),
       );
@@ -123,7 +123,7 @@ class BackendSessionService {
       print('🗑️ 开始删除会话: $sessionId');
 
       final response = await http.delete(
-        Uri.parse('$baseUrl/sessions/$sessionId'),
+        Uri.parse('$baseUrl/api/sessions/$sessionId'),
       );
 
       print('🗑️ 删除会话响应: ${response.statusCode}');
@@ -146,7 +146,9 @@ class BackendSessionService {
     try {
       print('🗑️ 开始删除所有会话...');
 
-      final response = await http.delete(Uri.parse('$baseUrl/sessions/all'));
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/sessions/all'),
+      );
 
       print('🗑️ 删除所有会话响应: ${response.statusCode}');
 
@@ -174,7 +176,7 @@ class BackendSessionService {
   }) async {
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/sessions/add_message'),
+        Uri.parse('$baseUrl/api/sessions/add_message'),
         headers: {'Content-Type': 'application/json; charset=utf-8'},
         body: jsonEncode({
           'session_id': sessionId,
@@ -222,7 +224,24 @@ class BackendSessionService {
   /// 应用所有必要的数据转换：
   /// - Sender映射（assistant/system → bot）
   /// - 时间转换（ISO8601字符串 → DateTime）
+  /// - 🆕 智能处理media_path：优先使用可下载的URL而非服务器路径
   static Message _parseMessage(Map<String, dynamic> json) {
+    // 🆕 智能获取媒体路径：优先使用metadata中的URL
+    String? mediaPath = json['media_path'];
+    final metadata = json['metadata'] as Map<String, dynamic>?;
+
+    // 检查metadata中是否有可用的URL
+    if (metadata != null) {
+      final mediaUrl = metadata['media_url'] ?? metadata['video_url'];
+      if (mediaUrl != null && mediaUrl.toString().isNotEmpty) {
+        // 使用URL而非服务器路径（URL以/开头且不包含盘符）
+        if (mediaUrl.toString().startsWith('/') &&
+            !mediaUrl.toString().contains(':\\')) {
+          mediaPath = mediaUrl.toString();
+        }
+      }
+    }
+
     return Message(
       id: json['id'],
       content: json['content'],
@@ -232,7 +251,7 @@ class BackendSessionService {
       ),
       sender: SenderMapper.fromBackend(json['sender']), // ⭐ Sender映射
       timestamp: TimeConverter.fromIso(json['timestamp']), // ⭐ 时间转换
-      mediaPath: json['media_path'],
+      mediaPath: mediaPath,
     );
   }
 
@@ -252,7 +271,7 @@ class BackendSessionService {
     try {
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$baseUrl/sessions/process-multimodal'),
+        Uri.parse('$baseUrl/api/sessions/process-multimodal'),
       );
 
       // 添加表单字段
@@ -302,7 +321,7 @@ class BackendSessionService {
       }
 
       // 发送请求
-      print('发送多模态处理请求到: $baseUrl/sessions/process-multimodal');
+      print('发送多模态处理请求到: $baseUrl/api/sessions/process-multimodal');
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
@@ -401,8 +420,10 @@ class BackendSessionService {
   /// 用于轮询异步任务的处理进度
   static Future<TaskStatus?> getTaskStatus(String taskId) async {
     try {
-      print('📡 获取任务状态: $baseUrl/tasks/$taskId');
-      final response = await http.get(Uri.parse('$baseUrl/tasks/$taskId'));
+      print('📡 获取任务状态: $baseUrl/api/sessions/tasks/$taskId');
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/sessions/tasks/$taskId'),
+      );
 
       print('📡 任务状态响应码: ${response.statusCode}');
 
