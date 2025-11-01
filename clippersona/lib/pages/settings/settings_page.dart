@@ -4,6 +4,7 @@ import 'sections/editing_preferences_section.dart';
 import 'sections/other_settings_section.dart';
 import 'sections/language_section.dart';
 import '../../services/avatar_service.dart';
+import '../../services/user_service.dart';
 import '../../services/backend_session_service.dart';
 import '../../config/app_locales.dart';
 import '../../config/locale_manager.dart';
@@ -18,27 +19,31 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  String _userName = "ADFGJJ9";
+  String _userName = "USER_NAME";
   String? _avatarPath;
 
   // 设置状态
   bool _darkMode = true;
-  String _exportFormat = "1080p";
-  String _frameRate = "30fps";
   final LocaleManager _localeManager = LocaleManager();
   final SettingsManager _settingsManager = SettingsManager();
 
   @override
   void initState() {
     super.initState();
-    _loadAvatar();
+    _loadUserInfo();
     // 监听设置变化
     _settingsManager.addListener(_onSettingsChanged);
+    // 监听头像变化
+    AvatarService.avatarPathNotifier.addListener(_onAvatarChanged);
+    // 监听昵称变化
+    UserService.userNameNotifier.addListener(_onUserNameChanged);
   }
 
   @override
   void dispose() {
     _settingsManager.removeListener(_onSettingsChanged);
+    AvatarService.avatarPathNotifier.removeListener(_onAvatarChanged);
+    UserService.userNameNotifier.removeListener(_onUserNameChanged);
     super.dispose();
   }
 
@@ -46,11 +51,32 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {}); // 重新构建UI
   }
 
-  Future<void> _loadAvatar() async {
+  void _onAvatarChanged() {
+    if (mounted) {
+      setState(() {
+        _avatarPath = AvatarService.avatarPathNotifier.value;
+      });
+    }
+  }
+
+  void _onUserNameChanged() {
+    if (mounted) {
+      setState(() {
+        _userName = UserService.userNameNotifier.value;
+      });
+    }
+  }
+
+  Future<void> _loadUserInfo() async {
+    // 加载头像
     final avatarPath = await AvatarService.getAvatarPath();
+    // 加载昵称
+    final userName = await UserService.getUserName();
+
     if (mounted) {
       setState(() {
         _avatarPath = avatarPath;
+        _userName = userName;
       });
     }
   }
@@ -92,19 +118,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
               // 剪辑偏好部分
               EditingPreferencesSection(
-                exportFormat: _exportFormat,
-                frameRate: _frameRate,
                 communityUpdates: _settingsManager.communityUpdatesEnabled,
-                onExportFormatChanged: (value) {
-                  setState(() {
-                    _exportFormat = value;
-                  });
-                },
-                onFrameRateChanged: (value) {
-                  setState(() {
-                    _frameRate = value;
-                  });
-                },
                 onCommunityUpdatesChanged: (value) {
                   _settingsManager.setCommunityUpdates(value);
                 },
@@ -137,7 +151,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   // TODO: 实现反馈功能
                 },
                 onTestConnectionPressed: _testConnection,
-                onDeleteAllSessionsPressed: _deleteAllBackendSessions,
               ),
             ],
           ),
@@ -185,6 +198,11 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _showEditDialog() {
+    final TextEditingController controller = TextEditingController(
+      text: _userName,
+    );
+    String tempUserName = _userName;
+
     showDialog(
       context: context,
       builder: (context) {
@@ -192,8 +210,8 @@ class _SettingsPageState extends State<SettingsPage> {
           title: Text(appLocales.edit),
           content: TextField(
             decoration: InputDecoration(labelText: appLocales.accountSettings),
-            controller: TextEditingController(text: _userName),
-            onChanged: (value) => _userName = value,
+            controller: controller,
+            onChanged: (value) => tempUserName = value,
           ),
           actions: [
             TextButton(
@@ -201,9 +219,28 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Text(appLocales.cancel),
             ),
             TextButton(
-              onPressed: () {
-                setState(() {});
-                Navigator.pop(context);
+              onPressed: () async {
+                // 保存昵称到SharedPreferences
+                final success = await UserService.saveUserName(tempUserName);
+                if (success) {
+                  setState(() {
+                    _userName = tempUserName;
+                  });
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(const SnackBar(content: Text('昵称保存成功')));
+                  }
+                } else {
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(const SnackBar(content: Text('昵称保存失败')));
+                  }
+                }
+                if (mounted) {
+                  Navigator.pop(context);
+                }
               },
               child: Text(appLocales.save),
             ),
@@ -320,145 +357,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(appLocales.confirm),
-                ),
-              ],
-            );
-          },
-        );
-      }
-    }
-  }
-
-  /// 删除所有后端会话
-  Future<void> _deleteAllBackendSessions() async {
-    // 显示确认对话框
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.warning, color: Colors.orange, size: 28),
-              const SizedBox(width: 10),
-              Text(appLocales.deleteAllSessions),
-            ],
-          ),
-          content: Text(appLocales.deleteAllSessionsConfirm),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(appLocales.cancel),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: Text(appLocales.confirm),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirm != true) return;
-
-    // 显示加载对话框
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          content: Row(
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(width: 20),
-              Expanded(child: Text(appLocales.deletingAllSessions)),
-            ],
-          ),
-        );
-      },
-    );
-
-    try {
-      final result = await BackendSessionService.deleteAllSessions();
-
-      // 关闭加载对话框
-      if (mounted) Navigator.pop(context);
-
-      // 显示结果
-      if (mounted) {
-        if (result != null) {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-                title: Row(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.green, size: 28),
-                    const SizedBox(width: 10),
-                    Text(appLocales.deleteAllSessionsSuccess),
-                  ],
-                ),
-                content: Text(
-                  '${appLocales.deleteAllSessionsSuccess}\n\n'
-                  '已删除 ${result['count']} 个会话',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(appLocales.confirm),
-                  ),
-                ],
-              );
-            },
-          );
-        } else {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-                title: Row(
-                  children: [
-                    Icon(Icons.error, color: Colors.red, size: 28),
-                    const SizedBox(width: 10),
-                    Text(appLocales.deleteAllSessionsFailed),
-                  ],
-                ),
-                content: Text(
-                  '${appLocales.deleteAllSessionsFailed}\n\n请检查网络连接',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(appLocales.confirm),
-                  ),
-                ],
-              );
-            },
-          );
-        }
-      }
-    } catch (e) {
-      // 关闭加载对话框
-      if (mounted) Navigator.pop(context);
-
-      // 显示错误信息
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Row(
-                children: [
-                  Icon(Icons.error, color: Colors.red, size: 28),
-                  const SizedBox(width: 10),
-                  Text(appLocales.error),
-                ],
-              ),
-              content: Text('${appLocales.deleteAllSessionsFailed}\n\n$e'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),

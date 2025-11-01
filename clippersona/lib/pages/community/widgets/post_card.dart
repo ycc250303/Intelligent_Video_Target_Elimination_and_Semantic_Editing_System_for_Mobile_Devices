@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import '../persona_detail_page.dart';
 
 class PostCard extends StatelessWidget {
@@ -66,7 +67,7 @@ class PostCard extends StatelessWidget {
   Widget _buildUserInfo() {
     return Row(
       children: [
-        CircleAvatar(radius: 20, backgroundImage: AssetImage(post['avatar'])),
+        _buildAvatarImage(),
         SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -101,6 +102,38 @@ class PostCard extends StatelessWidget {
     );
   }
 
+  // 构建头像，支持asset和文件系统两种方式
+  Widget _buildAvatarImage() {
+    final String avatarPath = post['avatar'] ?? '';
+
+    if (avatarPath.isEmpty) {
+      // 默认头像
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: Colors.grey[300],
+        child: Icon(Icons.person, color: Colors.grey[600]),
+      );
+    }
+
+    if (avatarPath.startsWith('assets/')) {
+      // 使用AssetImage加载asset资源
+      return CircleAvatar(radius: 20, backgroundImage: AssetImage(avatarPath));
+    } else {
+      // 使用FileImage加载文件系统资源
+      final file = File(avatarPath);
+      if (file.existsSync()) {
+        return CircleAvatar(radius: 20, backgroundImage: FileImage(file));
+      } else {
+        // 文件不存在，显示默认头像
+        return CircleAvatar(
+          radius: 20,
+          backgroundColor: Colors.grey[300],
+          child: Icon(Icons.person, color: Colors.grey[600]),
+        );
+      }
+    }
+  }
+
   Widget _buildContent() {
     return Text(
       post['content'],
@@ -114,14 +147,27 @@ class PostCard extends StatelessWidget {
   }
 
   Widget _buildImage() {
+    final String imagePath = post['image'] ?? '';
+
+    if (imagePath.isEmpty) {
+      return SizedBox.shrink();
+    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: Image.asset(
-        post['image'],
-        width: double.infinity,
-        height: 180,
-        fit: BoxFit.cover,
-      ),
+      child: imagePath.startsWith('assets/')
+          ? Image.asset(
+              imagePath,
+              width: double.infinity,
+              height: 180,
+              fit: BoxFit.cover,
+            )
+          : Image.file(
+              File(imagePath),
+              width: double.infinity,
+              height: 180,
+              fit: BoxFit.cover,
+            ),
     );
   }
 

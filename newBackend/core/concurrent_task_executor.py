@@ -36,6 +36,7 @@ class TaskResult:
     error_message: Optional[str] = None
     execution_time: float = 0.0
     metadata: Dict[str, Any] = None
+    result: Optional[Dict[str, Any]] = None  # 存储完整的结果字典
     
     def __post_init__(self):
         if self.metadata is None:
@@ -118,6 +119,7 @@ class ConcurrentTaskExecutor:
                 
                 # 如果结果是字典，提取相关信息
                 if isinstance(result, dict):
+                    self.task_results[task_id].result = result  # 保存完整结果
                     self.task_results[task_id].output_path = result.get('output_path')
                     self.task_results[task_id].metadata.update(result.get('metadata', {}))
                 elif isinstance(result, str):

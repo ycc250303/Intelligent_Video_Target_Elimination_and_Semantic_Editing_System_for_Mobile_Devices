@@ -22,6 +22,8 @@ from core.session_manager import (
 from core.concurrent_task_executor import task_executor, TaskStatus
 from core.qwen_nlp_parser import DialogueManager
 from persona.executor import PersonaAwareVideoOperationExecutor
+from config.demo_config import get_demo_video_path, is_demo_mode_enabled
+from core.generate_image import generate_style_card_image
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +289,10 @@ async def process_multimodal_in_session(
     text: str = Form(...),
     video: Optional[UploadFile] = File(None),
     images: List[UploadFile] = File(default=[]),  # 修改：使用默认空列表而不是None
-    execute_async: str = Form("false")  # 修改为字符串类型，前端发送的是 "true"/"false"
+    execute_async: str = Form("false"),  # 修改为字符串类型，前端发送的是 "true"/"false"
+    function_name: Optional[str] = Form(None),  # 可选：直接指定函数名（用于风格卡应用）
+    function_params: Optional[str] = Form(None),  # 可选：函数参数JSON字符串
+    style_card_name: Optional[str] = Form(None)  # 可选：风格卡名称（用于Demo模式检测）
 ):
     """
     在会话中处理多模态输入
@@ -298,6 +303,8 @@ async def process_multimodal_in_session(
         video: 视频文件
         images: 图片文件列表
         execute_async: 是否异步执行
+        function_name: 可选，直接指定函数名（用于风格卡应用）
+        function_params: 可选，函数参数JSON字符串
         
     Returns:
         处理结果
@@ -392,6 +399,150 @@ async def process_multimodal_in_session(
         
         # 定义任务函数
         def process_task():
+            # 🎯 优先检测Demo风格卡（即使全局Demo模式关闭，也检查特定风格卡）
+            if style_card_name:
+                from config.demo_config import get_demo_style_card_video
+                demo_video_path, demo_description = get_demo_style_card_video(style_card_name)
+                if demo_video_path:
+                    logger.info(f"🎨 检测到Demo风格卡: {style_card_name}，返回预设视频: {demo_video_path}")
+                    
+                    # 生成可访问的URL
+                    _project_root = Path(__file__).parent.parent.parent
+                    try:
+                        newbackend_dir = _project_root / "newBackend"
+                        relative_path = os.path.relpath(demo_video_path, str(newbackend_dir))
+                        media_url = f"/media/{relative_path.replace(os.sep, '/')}"
+                    except ValueError:
+                        filename = os.path.basename(demo_video_path)
+                        media_url = f"/media/demo_videos/{filename}"
+                    
+                    logger.info(f"🎬 Demo风格卡视频URL: {media_url}")
+                    
+                    # 返回demo结果
+                    return {
+                        "success": True,
+                        "response": demo_description,
+                        "modal_type": "text+video",
+                        "action": "",
+                        "execution": {
+                            "success": True,
+                            "video_url": media_url,
+                            "output_path": demo_video_path
+                        },
+                        "function_call": None
+                    }
+            
+            # 🎯 Demo模式检测（仅对智能剪辑指令生效）
+            if is_demo_mode_enabled():
+                
+                # 检测Demo指令
+                demo_video_path, demo_description, demo_function_call = get_demo_video_path(text)
+                if demo_video_path:
+                    logger.info(f"🎬 检测到Demo指令，返回预设视频: {demo_video_path}")
+                    
+                    # 生成可访问的URL（demo视频在newBackend/demo_videos目录）
+                    _project_root = Path(__file__).parent.parent.parent
+                    try:
+                        # 尝试获取相对于newBackend目录的路径
+                        newbackend_dir = _project_root / "newBackend"
+                        relative_path = os.path.relpath(demo_video_path, str(newbackend_dir))
+                        media_url = f"/media/{relative_path.replace(os.sep, '/')}"
+                    except ValueError:
+                        # 如果路径不在newBackend下，使用文件名
+                        filename = os.path.basename(demo_video_path)
+                        media_url = f"/media/demo_videos/{filename}"
+                    
+                    logger.info(f"🎬 Demo视频URL: {media_url}")
+                    
+                    # 返回demo结果
+                    return {
+                        "success": True,
+                        "response": demo_description,
+                        "modal_type": "text+video",
+                        "action": "",
+                        "execution": {
+                            "success": True,
+                            "output_path": demo_video_path,
+                            "media_url": media_url,
+                            "video_url": media_url,
+                            "output_type": "video",
+                            "error_message": None,
+                            "operation_name": "demo_playback",
+                            "operation_details": {},
+                            "function_call": demo_function_call  # 添加函数调用信息
+                        }
+                    }
+            
+            # 🎯 检查是否提供了函数调用信息（风格卡应用模式）
+            import json
+            if function_name and function_params:
+                logger.info(f"🎨 风格卡应用模式: {function_name}")
+                try:
+                    params = json.loads(function_params)
+                    logger.info(f"   参数: {params}")
+                    
+                    # 构造操作JSON（跳过NLP解析）
+                    operation_json = {
+                        "operations": {
+                            "operation": function_name,
+                            "params": params
+                        }
+                    }
+                    
+                    # 执行操作
+                    exec_result = video_executor.execute_from_json(
+                        operation_json,
+                        input_video=video_path
+                    )
+                    
+                    output_path = None
+                    media_url = None
+                    output_type = None
+                    
+                    if exec_result.success and exec_result.output_path:
+                        output_path = exec_result.output_path
+                        
+                        # 判断输出类型
+                        file_ext = os.path.splitext(output_path)[1].lower()
+                        if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                            output_type = 'image'
+                        else:
+                            output_type = 'video'
+                        
+                        # 生成可访问的URL
+                        _project_root = Path(__file__).parent.parent.parent
+                        _data_dir = _project_root / "data"
+                        relative_path = os.path.relpath(output_path, str(_data_dir))
+                        media_url = f"/media/{relative_path.replace(os.sep, '/')}"
+                        
+                        logger.info(f"✅ 风格卡操作成功: {media_url}")
+                    
+                    # 返回结果
+                    return {
+                        "success": True,
+                        "response": text,  # 使用用户指令作为响应
+                        "modal_type": "text+video" if output_type == 'video' else "text+image",
+                        "action": json.dumps(operation_json),
+                        "execution": {
+                            "success": exec_result.success,
+                            "output_path": output_path,
+                            "media_url": media_url,
+                            "video_url": media_url,
+                            "output_type": output_type,
+                            "error_message": exec_result.error_message,
+                            "operation_name": function_name,
+                            "execution_time": exec_result.execution_time,
+                            "function_call": {
+                                "functionName": function_name,
+                                "parameters": params
+                            }
+                        }
+                    }
+                except Exception as e:
+                    logger.error(f"❌ 风格卡应用失败: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
             # 1. 先使用 DialogueManager 解析用户指令
             # 注意：对于大视频(>20MB)，只传递文本指令给千问，避免API错误
             # 视频文件路径会在后续视频编辑时使用
@@ -462,6 +613,18 @@ async def process_multimodal_in_session(
                     else:
                         logger.error(f"❌ 操作失败: {exec_result.error_message}")
                     
+                    # 提取函数调用信息（排除执行时上下文参数）
+                    all_params = operation_json.get("operations", {}).get("params", {})
+                    # 过滤掉执行时动态生成的参数
+                    context_params = {'input_video', 'output_video', 'input_image', 'output_image'}
+                    user_params = {k: v for k, v in all_params.items() if k not in context_params}
+                    
+                    function_call = {
+                        "functionName": operation_name,
+                        "parameters": user_params
+                    }
+                    logger.info(f"📝 提取函数调用信息: {function_call} (已过滤执行上下文参数)")
+                    
                     # 更新结果
                     result["execution"] = {
                         "success": exec_result.success,
@@ -471,8 +634,10 @@ async def process_multimodal_in_session(
                         "output_type": output_type,
                         "error_message": exec_result.error_message,
                         "operation_name": exec_result.operation_name,
-                        "execution_time": exec_result.execution_time
+                        "execution_time": exec_result.execution_time,
+                        "function_call": function_call  # 添加函数调用信息
                     }
+                    logger.info(f"📦 返回结果包含function_call: {result['execution'].get('function_call')}")
                     
                 except Exception as e:
                     logger.error(f"❌ 执行视频操作异常: {e}")
@@ -618,7 +783,22 @@ async def get_task_status(task_id: str):
         # 生成可访问的媒体URL（支持图片和视频）
         media_url = None
         output_type = None
-        if result.output_path and os.path.exists(result.output_path):
+        
+        # 提取function_call信息
+        function_call = None
+        
+        # 首先尝试从完整结果中获取（Demo模式和其他预设的media_url）
+        if hasattr(result, 'result') and isinstance(result.result, dict):
+            execution = result.result.get('execution', {})
+            if execution:
+                media_url = execution.get('media_url') or execution.get('video_url')
+                output_type = execution.get('output_type', 'video')
+                function_call = execution.get('function_call')
+                logger.info(f"从execution结果提取媒体URL ({output_type}): {media_url}")
+                logger.info(f"从execution结果提取function_call: {function_call}")
+        
+        # 如果没有预设的media_url，尝试从output_path生成
+        if not media_url and result.output_path and os.path.exists(result.output_path):
             try:
                 # 判断输出类型
                 file_ext = os.path.splitext(result.output_path)[1].lower()
@@ -631,18 +811,26 @@ async def get_task_status(task_id: str):
                 
                 _project_root = Path(__file__).parent.parent.parent
                 _data_dir = _project_root / "data"
-                relative_path = os.path.relpath(result.output_path, str(_data_dir))
-                media_url = f"/media/{relative_path.replace(os.sep, '/')}"
-                logger.info(f"生成媒体URL ({output_type}): {media_url}")
-            except ValueError:
-                # 如果路径不在data目录下，尝试从execution结果中获取
-                logger.warning(f"输出路径不在data目录: {result.output_path}")
-                if hasattr(result, 'result') and isinstance(result.result, dict):
-                    execution = result.result.get('execution', {})
-                    media_url = execution.get('media_url') or execution.get('video_url')
-                    output_type = execution.get('output_type', 'video')
+                
+                try:
+                    relative_path = os.path.relpath(result.output_path, str(_data_dir))
+                    media_url = f"/media/{relative_path.replace(os.sep, '/')}"
+                    logger.info(f"生成媒体URL ({output_type}): {media_url}")
+                except ValueError:
+                    # 路径不在data目录下，可能是demo视频或其他特殊路径
+                    logger.warning(f"输出路径不在data目录: {result.output_path}")
+                    # 尝试从newBackend目录生成相对路径
+                    newbackend_dir = _project_root / "newBackend"
+                    try:
+                        relative_path = os.path.relpath(result.output_path, str(newbackend_dir))
+                        media_url = f"/media/{relative_path.replace(os.sep, '/')}"
+                        logger.info(f"生成Demo媒体URL: {media_url}")
+                    except ValueError:
+                        logger.error(f"无法为路径生成URL: {result.output_path}")
+            except Exception as e:
+                logger.error(f"生成媒体URL失败: {e}")
         
-        return {
+        response_data = {
             "status": "success",
             "task": {
                 "task_id": result.task_id,
@@ -654,9 +842,12 @@ async def get_task_status(task_id: str):
                 "output_type": output_type,
                 "error_message": result.error_message,
                 "execution_time": result.execution_time,
-                "metadata": result.metadata
+                "metadata": result.metadata,
+                "function_call": function_call  # 添加函数调用信息
             }
         }
+        logger.info(f"📤 返回任务状态，function_call: {function_call}")
+        return response_data
     except HTTPException:
         raise
     except Exception as e:
@@ -928,15 +1119,33 @@ async def serve_media_file(path: str, request: Request):
         base_dir = _project_root / "data"
         file_path = str(base_dir / path)
         
+        logger.info(f"📁 查找媒体文件: {path}")
+        logger.info(f"   首先尝试: {file_path}")
+        
         # 检查文件是否存在
         if not os.path.exists(file_path):
-            # 如果在data目录找不到，尝试在Results目录查找（兼容旧代码）
-            alt_path = os.path.join("Results", os.path.basename(path))
-            if os.path.exists(alt_path):
-                file_path = alt_path
+            # 如果在data目录找不到，尝试在newBackend目录查找（demo视频）
+            newbackend_path = str(_project_root / "newBackend" / path)
+            logger.info(f"   data目录未找到，尝试: {newbackend_path}")
+            if os.path.exists(newbackend_path):
+                file_path = newbackend_path
+                logger.info(f"   ✅ 找到文件: {file_path}")
             else:
-                logger.warning(f"文件不存在: {file_path}")
-                raise HTTPException(status_code=404, detail="文件不存在")
+                # 尝试在Results目录查找（兼容旧代码）
+                alt_path = os.path.join("Results", os.path.basename(path))
+                logger.info(f"   newBackend目录未找到，尝试: {alt_path}")
+                if os.path.exists(alt_path):
+                    file_path = alt_path
+                    logger.info(f"   ✅ 找到文件: {file_path}")
+                else:
+                    logger.error(f"   ❌ 所有位置都未找到文件")
+                    logger.error(f"   尝试过的路径:")
+                    logger.error(f"   1. {str(base_dir / path)}")
+                    logger.error(f"   2. {newbackend_path}")
+                    logger.error(f"   3. {alt_path}")
+                    raise HTTPException(status_code=404, detail="文件不存在")
+        else:
+            logger.info(f"   ✅ 找到文件: {file_path}")
         
         file_size = os.path.getsize(file_path)
         range_header = request.headers.get('range') or request.headers.get('Range')
@@ -1009,4 +1218,63 @@ async def serve_media_file(path: str, request: Request):
     except Exception as e:
         logger.exception("访问媒体文件失败")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@session_app.post("/generate-style-card-image")
+async def generate_image_for_style_card(
+    title: str = Form(...),
+    description: str = Form(...),
+    operations: str = Form("[]")  # JSON字符串
+):
+    """
+    为风格卡生成AI图片
+    
+    Args:
+        title: 风格卡标题
+        description: 风格卡描述
+        operations: 操作列表（JSON字符串）
+        
+    Returns:
+        生成的图片本地路径
+    """
+    try:
+        import json
+        
+        # 解析operations JSON
+        try:
+            operations_list = json.loads(operations)
+        except:
+            operations_list = []
+        
+        logger.info(f"🎨 收到生图请求:")
+        logger.info(f"   标题: {title}")
+        logger.info(f"   描述: {description}")
+        logger.info(f"   操作数: {len(operations_list)}")
+        
+        # 调用生图函数
+        image_path = generate_style_card_image(
+            title=title,
+            description=description,
+            operations=operations_list
+        )
+        
+        if image_path:
+            logger.info(f"✅ 图片生成成功: {image_path}")
+            return {
+                "status": "success",
+                "image_path": image_path,
+                "message": "图片生成成功"
+            }
+        else:
+            logger.error("❌ 图片生成失败")
+            raise HTTPException(
+                status_code=500,
+                detail="图片生成失败，请稍后重试"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("生成图片异常")
+        raise HTTPException(status_code=500, detail=f"生成图片失败: {str(e)}")
 

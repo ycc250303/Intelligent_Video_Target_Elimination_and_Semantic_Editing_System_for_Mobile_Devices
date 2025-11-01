@@ -8,6 +8,10 @@ import 'package:permission_handler/permission_handler.dart';
 class AvatarService {
   static const String _avatarFileName = 'user_avatar.jpg';
 
+  // 头像更新通知
+  static final ValueNotifier<String?> avatarPathNotifier =
+      ValueNotifier<String?>(null);
+
   /// 检查并请求权限
   static Future<bool> _checkPermissions() async {
     // 检查相机权限
@@ -81,6 +85,10 @@ class AvatarService {
       final String avatarPath = path.join(appDir.path, _avatarFileName);
 
       await imageFile.copy(avatarPath);
+
+      // 通知所有监听者头像已更新
+      avatarPathNotifier.value = avatarPath;
+
       return avatarPath;
     } catch (e) {
       debugPrint('保存头像失败: $e');
@@ -96,6 +104,10 @@ class AvatarService {
       final File avatarFile = File(avatarPath);
 
       if (await avatarFile.exists()) {
+        // 更新通知器的值（如果还没有设置）
+        if (avatarPathNotifier.value != avatarPath) {
+          avatarPathNotifier.value = avatarPath;
+        }
         return avatarPath;
       }
     } catch (e) {
@@ -160,10 +172,18 @@ class AvatarService {
                   icon: Icons.photo_library,
                   label: '相册',
                   onTap: () async {
-                    Navigator.pop(context);
-                    final file = await pickAvatarImage();
-                    if (file != null && context.mounted) {
-                      Navigator.pop(context, file);
+                    try {
+                      final file = await pickAvatarImage();
+                      if (context.mounted) {
+                        Navigator.pop(context, file);
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text('选择图片失败: $e')));
+                      }
                     }
                   },
                 ),
@@ -172,10 +192,18 @@ class AvatarService {
                   icon: Icons.camera_alt,
                   label: '拍照',
                   onTap: () async {
-                    Navigator.pop(context);
-                    final file = await takeAvatarPhoto();
-                    if (file != null && context.mounted) {
-                      Navigator.pop(context, file);
+                    try {
+                      final file = await takeAvatarPhoto();
+                      if (context.mounted) {
+                        Navigator.pop(context, file);
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text('拍照失败: $e')));
+                      }
                     }
                   },
                 ),

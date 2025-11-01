@@ -10,7 +10,6 @@ class OtherSettingsSection extends StatelessWidget {
   final VoidCallback onHelpPressed;
   final VoidCallback onFeedbackPressed;
   final VoidCallback onTestConnectionPressed;
-  final VoidCallback onDeleteAllSessionsPressed;
 
   const OtherSettingsSection({
     super.key,
@@ -19,7 +18,6 @@ class OtherSettingsSection extends StatelessWidget {
     required this.onHelpPressed,
     required this.onFeedbackPressed,
     required this.onTestConnectionPressed,
-    required this.onDeleteAllSessionsPressed,
   });
 
   @override
@@ -102,12 +100,6 @@ class OtherSettingsSection extends StatelessWidget {
                 SettingButton(
                   text: appLocales.testConnection,
                   onPressed: onTestConnectionPressed,
-                ),
-                const SizedBox(height: 12),
-                SettingButton(
-                  text: appLocales.deleteAllSessions,
-                  onPressed: onDeleteAllSessionsPressed,
-                  color: Colors.red,
                 ),
               ],
             ),

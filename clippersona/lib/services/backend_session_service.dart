@@ -19,8 +19,7 @@ class BackendSessionService {
   /// - iOS模拟器/浏览器：使用 localhost
   /// 简化版本：不再使用 /api/v2 前缀
   // static const String baseUrl = "http://localhost:8000"; // 🔌 USB调试 (adb reverse tcp:8000 tcp:8000)
-  static const String baseUrl =
-      "http://100.80.59.113:8000"; // 真机 - WLAN (校园网会失败)
+  static const String baseUrl = "http://192.168.113.174:8000"; // 真机 - WLAN (校园网会失败)
   // static const String baseUrl = "http://10.0.2.2:8000"; // Android模拟器
 
   /// 获取所有会话（单用户模式）
@@ -265,6 +264,9 @@ class BackendSessionService {
     File? videoFile,
     List<File>? imageFiles,
     bool executeAsync = true,
+    String? functionName,
+    Map<String, dynamic>? functionParams,
+    String? styleCardName, // 新增：风格卡名称（用于Demo模式）
   }) async {
     try {
       var request = http.MultipartRequest(
@@ -276,6 +278,19 @@ class BackendSessionService {
       request.fields['session_id'] = sessionId;
       request.fields['text'] = text;
       request.fields['execute_async'] = executeAsync ? 'true' : 'false';
+
+      // 添加函数调用信息（用于风格卡应用）
+      if (functionName != null) {
+        request.fields['function_name'] = functionName;
+      }
+      if (functionParams != null) {
+        request.fields['function_params'] = jsonEncode(functionParams);
+      }
+
+      // 添加风格卡名称（用于Demo模式检测）
+      if (styleCardName != null) {
+        request.fields['style_card_name'] = styleCardName;
+      }
 
       // 添加视频文件
       if (videoFile != null) {
@@ -352,108 +367,51 @@ class BackendSessionService {
     }
   }
 
-  /// 获取智能推荐操作
+  /// 便捷方法：处理多模态输入并返回任务ID
   ///
-  /// 基于用户人格卡获取推荐的视频编辑操作
-  static Future<List<Map<String, dynamic>>> getRecommendations({
+  /// 用于风格卡应用等场景，简化调用流程
+  static Future<String?> processMultimodalInput({
     required String sessionId,
-    Map<String, dynamic>? videoMetadata,
+    required String text,
+    String? functionName,
+    Map<String, dynamic>? functionParams,
+    List<String>? videos,
+    List<String>? images,
+    String? styleCardName, // 新增：风格卡名称
   }) async {
     try {
-      print('🎯 获取智能推荐 - sessionId: $sessionId');
-
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/sessions/$sessionId/recommendations'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'video_metadata': videoMetadata ?? {}}),
-      );
-
-      print('📊 推荐响应状态码: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final recommendations = List<Map<String, dynamic>>.from(
-          data['recommendations'] ?? [],
-        );
-        print('✅ 获取到 ${recommendations.length} 条推荐');
-        return recommendations;
-      } else {
-        print('❌ 获取推荐失败: ${response.statusCode}');
+      // 准备视频文件
+      File? videoFile;
+      if (videos != null && videos.isNotEmpty) {
+        videoFile = File(videos.first);
       }
 
-      return [];
-    } catch (e) {
-      print('❌ 获取推荐异常: $e');
-      return [];
-    }
-  }
+      // 准备图片文件
+      List<File>? imageFiles;
+      if (images != null && images.isNotEmpty) {
+        imageFiles = images.map((path) => File(path)).toList();
+      }
 
-  /// 获取用户人格数据
-  ///
-  /// 获取完整的用户剪辑人格分析数据
-  static Future<Map<String, dynamic>?> getPersonaData({
-    required String sessionId,
-    bool refresh = false,
-  }) async {
-    try {
-      print('📊 获取人格数据 - sessionId: $sessionId, refresh: $refresh');
-
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/sessions/$sessionId/persona?refresh=$refresh'),
+      // 调用主方法
+      final result = await processMultimodal(
+        sessionId: sessionId,
+        text: text,
+        videoFile: videoFile,
+        imageFiles: imageFiles,
+        executeAsync: true,
+        functionName: functionName,
+        functionParams: functionParams,
+        styleCardName: styleCardName, // 传递风格卡名称
       );
 
-      print('人格数据响应状态码: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        if (data['has_persona'] == true) {
-          print('✅ 获取到人格数据');
-          return data['persona'];
-        } else {
-          print('ℹ️ 人格数据尚未生成: ${data['message']}');
-          return null;
-        }
-      } else {
-        print('❌ 获取人格数据失败: ${response.statusCode}');
+      if (result != null && result.success) {
+        return result.taskId;
       }
 
       return null;
     } catch (e) {
-      print('❌ 获取人格数据异常: $e');
+      print('❌ processMultimodalInput 失败: $e');
       return null;
-    }
-  }
-
-  /// 获取工作流模板
-  ///
-  /// 获取用户常用的编辑工作流模板
-  static Future<List<Map<String, dynamic>>> getWorkflowTemplates({
-    required String sessionId,
-  }) async {
-    try {
-      print('⚡ 获取工作流模板 - sessionId: $sessionId');
-
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/sessions/$sessionId/workflow-templates'),
-      );
-
-      print('工作流模板响应状态码: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final templates = List<Map<String, dynamic>>.from(
-          data['templates'] ?? [],
-        );
-        print('✅ 获取到 ${templates.length} 个工作流模板');
-        return templates;
-      } else {
-        print('❌ 获取工作流模板失败: ${response.statusCode}');
-      }
-
-      return [];
-    } catch (e) {
-      print('❌ 获取工作流模板异常: $e');
-      return [];
     }
   }
 
@@ -622,6 +580,7 @@ class TaskStatus {
   final String? outputType; // 新增：输出类型
   final String? errorMessage;
   final double? executionTime;
+  final Map<String, dynamic>? functionCall; // 新增：函数调用信息
 
   TaskStatus({
     required this.taskId,
@@ -633,9 +592,12 @@ class TaskStatus {
     this.outputType,
     this.errorMessage,
     this.executionTime,
+    this.functionCall,
   });
 
   factory TaskStatus.fromJson(Map<String, dynamic> json) {
+    print('🔍 解析TaskStatus: ${json.keys}');
+    print('   function_call字段: ${json['function_call']}');
     return TaskStatus(
       taskId: json['task_id'],
       sessionId: json['session_id'],
@@ -646,6 +608,7 @@ class TaskStatus {
       outputType: json['output_type'],
       errorMessage: json['error_message'],
       executionTime: json['execution_time']?.toDouble(),
+      functionCall: json['function_call'] as Map<String, dynamic>?,
     );
   }
 
